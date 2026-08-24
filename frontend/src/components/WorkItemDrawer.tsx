@@ -15,6 +15,7 @@ import { EstimatedDurationSelect } from './EstimatedDurationSelect';
 import { QuarterTimePicker } from './QuarterTimePicker';
 import { PersonPicker } from './PersonPicker';
 import { TagPicker } from './TagPicker';
+import { MeetingInfoPanel } from './MeetingInfoPanel';
 
 export function WorkItemDrawer({
   item,
@@ -106,6 +107,7 @@ export function WorkItemDrawer({
           事项标题
           <input data-autofocus value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} />
         </label>
+        <MeetingInfoPanel item={item} />
         <div className="field-grid">
           <label>
             状态

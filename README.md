@@ -67,6 +67,21 @@ Optional delivery adapters:
 - `PERSONAL_AFFAIRS_FEISHU_WEBHOOK_URL`
 - `PERSONAL_AFFAIRS_NTFY_TOPIC_URL`
 
+Optional Feishu IM text ingestion is disabled by default and only accepts passive text callback events. It does not read history, poll chats, or process images, files, or voice messages.
+
+- Feishu callback URL: `<public-base-url>/api/v1/integrations/feishu/im/events`
+- Enable only after configuring `PERSONAL_AFFAIRS_FEISHU_IM_ENABLED=true`.
+- Configure `PERSONAL_AFFAIRS_FEISHU_IM_VERIFICATION_TOKEN` and, if enabled in Feishu, `PERSONAL_AFFAIRS_FEISHU_IM_ENCRYPT_KEY` from the runtime secret store.
+- Set exactly one default Personal Affairs owner through `PERSONAL_AFFAIRS_FEISHU_IM_DEFAULT_USER_ID` or `PERSONAL_AFFAIRS_FEISHU_IM_DEFAULT_USERNAME`.
+- Before production enablement, send Feishu URL verification and one test text event from a test app, then confirm the callback creates one pending proposal and duplicate delivery does not create another proposal.
+
+Optional Tencent Meeting completion through `tmeet` is backend-only, read-only, and disabled by default.
+
+- Enable with `PERSONAL_AFFAIRS_TMEET_ENABLED=true` only on a server where the `tmeet` CLI is installed and authenticated.
+- Keep `PERSONAL_AFFAIRS_TMEET_ALLOWED_COMMANDS=meeting:get`; no create, update, cancel, recording, minutes, or report command is allowed in V1.
+- Use `PERSONAL_AFFAIRS_TMEET_HOME` for the CLI authorization directory when the runtime user needs a dedicated config path.
+- The adapter assumes a read command shaped like `tmeet meeting get --meeting-id <id> --format json` or `--meeting-code <code>`; verify the actual installed CLI contract before enabling it outside a test environment.
+
 Do not commit real passwords, webhook URLs, personal access tokens, session secrets, OAuth credentials, private keys, or full production connection strings.
 
 ## Deployment Boundary

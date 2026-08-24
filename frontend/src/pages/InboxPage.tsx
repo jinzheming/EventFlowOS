@@ -2,7 +2,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { api, Item, Scope, Session } from '../api/client';
+import { AgentProposalDeck } from '../components/AgentProposalDeck';
 import { ListState } from '../components/ListState';
+import { PersonalItemDrawer } from '../components/PersonalItemDrawer';
+import { WorkItemDrawer } from '../components/WorkItemDrawer';
+import { usePatchItem, useSaveItemWithReminder } from '../hooks/useItemActions';
 import { formatItemSchedule } from '../lib/dates';
 
 /**
@@ -10,22 +14,38 @@ import { formatItemSchedule } from '../lib/dates';
  */
 export function InboxPage({ session }: { session: Session }) {
   const queryClient = useQueryClient();
+  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const workItems = useQuery({ queryKey: ['items', 'work'], queryFn: () => api.items('work', true) });
   const personalItems = useQuery({ queryKey: ['items', 'personal'], queryFn: () => api.items('personal', true) });
+  const proposals = useQuery({ queryKey: ['agent-proposals', 'pending'], queryFn: () => api.agentProposals('pending') });
   const [error, setError] = useState<string | null>(null);
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const allItems = useMemo(() => [...(workItems.data ?? []), ...(personalItems.data ?? [])], [workItems.data, personalItems.data]);
+  const selectedItem = allItems.find((item) => item.id === selectedItemId) ?? null;
 
   const inboxItems = useMemo(() => {
-    const all = [...(workItems.data ?? []), ...(personalItems.data ?? [])];
-    return all
+    return allItems
       .filter((item) => item.status === 'inbox' && !item.archived_at)
       .sort((a, b) => b.created_at.localeCompare(a.created_at));
-  }, [workItems.data, personalItems.data]);
+  }, [allItems]);
 
   function invalidateAll() {
     queryClient.invalidateQueries({ queryKey: ['items', 'work'] });
     queryClient.invalidateQueries({ queryKey: ['items', 'personal'] });
     queryClient.invalidateQueries({ queryKey: ['inbox-items'] });
+    queryClient.invalidateQueries({ queryKey: ['calendar'] });
+    queryClient.invalidateQueries({ queryKey: ['reminder-health'] });
   }
+
+  const patchItem = usePatchItem(session, (item) => {
+    setSelectedItemId(item.id);
+    invalidateAll();
+  });
+
+  const saveItem = useSaveItemWithReminder(session, (item) => {
+    setSelectedItemId(item.id);
+    invalidateAll();
+  });
 
   const triage = useMutation({
     mutationFn: ({ item, scope }: { item: Item; scope: Scope }) =>
@@ -48,6 +68,14 @@ export function InboxPage({ session }: { session: Session }) {
           <p>{inboxItems.length} 条待分类 · 暂存待明确范围（工作/个人）的事项</p>
         </div>
       </header>
+
+      <AgentProposalDeck
+        proposals={proposals.data ?? []}
+        session={session}
+        title="收集箱待确认"
+        emptyText="暂无待确认提议"
+        onAppliedItem={(item) => setSelectedItemId(item.id)}
+      />
 
       {error && <p className="error-line">{error}</p>}
 
@@ -101,6 +129,44 @@ export function InboxPage({ session }: { session: Session }) {
           </div>
         )}
       </ListState>
+
+      {selectedItem?.scope === 'work' && (
+        <WorkItemDrawer
+          item={selectedItem}
+          projects={projects.data ?? []}
+          session={session}
+          saving={saveItem.isPending || patchItem.isPending}
+          error={saveItem.error?.message ?? patchItem.error?.message}
+          onClose={() => setSelectedItemId(null)}
+          onSave={(draft, reminderTouched, tagIds) => saveItem.mutate({ item: selectedItem, draft, reminderTouched, tagIds })}
+          onStatus={(status) => patchItem.mutate({ item: selectedItem, payload: { status } })}
+          onReschedule={(payload) => patchItem.mutate({ item: selectedItem, payload })}
+          onDelete={() => {
+            void api.deleteItem(session.csrf_token, selectedItem.id).then(() => {
+              setSelectedItemId(null);
+              invalidateAll();
+            });
+          }}
+        />
+      )}
+      {selectedItem?.scope === 'personal' && (
+        <PersonalItemDrawer
+          item={selectedItem}
+          session={session}
+          saving={saveItem.isPending || patchItem.isPending}
+          error={saveItem.error?.message ?? patchItem.error?.message}
+          onClose={() => setSelectedItemId(null)}
+          onSave={(draft, reminderTouched, tagIds) => saveItem.mutate({ item: selectedItem, draft, reminderTouched, tagIds })}
+          onStatus={(status) => patchItem.mutate({ item: selectedItem, payload: { status } })}
+          onReschedule={(payload) => patchItem.mutate({ item: selectedItem, payload })}
+          onDelete={() => {
+            void api.deleteItem(session.csrf_token, selectedItem.id).then(() => {
+              setSelectedItemId(null);
+              invalidateAll();
+            });
+          }}
+        />
+      )}
     </section>
   );
 }

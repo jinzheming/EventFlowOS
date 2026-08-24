@@ -54,6 +54,31 @@ def test_tmeet_lookup_runs_only_allowed_read_command() -> None:
     assert observed["env"]["TMEET_HOME"] == "/runtime/tmeet"
 
 
+def test_tmeet_lookup_supports_meeting_code_fallback() -> None:
+    observed: dict = {}
+
+    def runner(command, **kwargs):
+        observed["command"] = command
+        return subprocess.CompletedProcess(command, 0, stdout=json.dumps({"meeting": {"title": "只读补全"}}), stderr="")
+
+    result = lookup_tencent_meeting(
+        Settings(tmeet_enabled=True, tmeet_bin="tmeet"),
+        meeting_code="987654321",
+        runner=runner,
+    )
+
+    assert result.status == "success"
+    assert result.details == {"title": "只读补全"}
+    assert observed["command"] == ["tmeet", "meeting", "get", "--meeting-code", "987654321", "--format", "json"]
+
+
+def test_tmeet_lookup_skips_without_meeting_identifier() -> None:
+    result = lookup_tencent_meeting(Settings(tmeet_enabled=True))
+
+    assert result.status == "skipped"
+    assert result.error_category == "missing_meeting_identifier"
+
+
 def test_tmeet_lookup_refuses_when_command_not_whitelisted() -> None:
     result = lookup_tencent_meeting(
         Settings(tmeet_enabled=True, tmeet_allowed_commands=""),

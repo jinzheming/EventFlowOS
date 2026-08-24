@@ -1,8 +1,11 @@
 import json
+from base64 import b64decode
+from binascii import Error as BinasciiError
 from hashlib import sha256
 from hmac import compare_digest
 from typing import Any, cast
 
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from fastapi import APIRouter, Depends, Header, Request
 from psycopg import Connection
 
@@ -37,12 +40,7 @@ async def feishu_im_events(
     cfg: Settings = Depends(settings),
 ) -> dict[str, Any]:
     body = await request.body()
-    try:
-        payload = json.loads(body.decode("utf-8") or "{}")
-    except json.JSONDecodeError as exc:
-        raise DomainError(ErrorCode.INVALID_REQUEST, "Feishu request body must be valid JSON.", 400) from exc
-    if not isinstance(payload, dict):
-        raise DomainError(ErrorCode.INVALID_REQUEST, "Feishu request body must be a JSON object.", 400)
+    payload = _decode_feishu_body(body, cfg)
     if _is_challenge(payload):
         _verify_token(payload, cfg)
         return {"challenge": payload["challenge"]}
@@ -126,6 +124,47 @@ def _verify_signature(
     expected = sha256(base).hexdigest()
     if not compare_digest(expected, signature):
         raise DomainError(ErrorCode.AUTH_REQUIRED, "Feishu request signature mismatch.", 401)
+
+
+def _decode_feishu_body(body: bytes, cfg: Settings) -> dict[str, Any]:
+    try:
+        payload = json.loads(body.decode("utf-8") or "{}")
+    except json.JSONDecodeError as exc:
+        raise DomainError(ErrorCode.INVALID_REQUEST, "Feishu request body must be valid JSON.", 400) from exc
+    if not isinstance(payload, dict):
+        raise DomainError(ErrorCode.INVALID_REQUEST, "Feishu request body must be a JSON object.", 400)
+    encrypted = payload.get("encrypt")
+    if encrypted is None:
+        return payload
+    if not isinstance(encrypted, str) or not encrypted:
+        raise DomainError(ErrorCode.INVALID_REQUEST, "Feishu encrypted body must contain encrypt text.", 400)
+    if not cfg.feishu_im_encrypt_key:
+        raise DomainError(ErrorCode.AUTH_REQUIRED, "Feishu encrypted body requires encrypt key.", 401)
+    decrypted = _decrypt_feishu_payload(encrypted, cfg.feishu_im_encrypt_key)
+    try:
+        decoded = json.loads(decrypted.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise DomainError(ErrorCode.INVALID_REQUEST, "Feishu decrypted body must be valid JSON.", 400) from exc
+    if not isinstance(decoded, dict):
+        raise DomainError(ErrorCode.INVALID_REQUEST, "Feishu decrypted body must be a JSON object.", 400)
+    return decoded
+
+
+def _decrypt_feishu_payload(encrypted: str, encrypt_key: str) -> bytes:
+    try:
+        raw = b64decode(encrypted, validate=True)
+    except (BinasciiError, ValueError) as exc:
+        raise DomainError(ErrorCode.INVALID_REQUEST, "Feishu encrypted body is not valid base64.", 400) from exc
+    if len(raw) <= 16 or len(raw) % 16 != 0:
+        raise DomainError(ErrorCode.INVALID_REQUEST, "Feishu encrypted body has invalid length.", 400)
+    key = sha256(encrypt_key.encode("utf-8")).digest()
+    iv, ciphertext = raw[:16], raw[16:]
+    decryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).decryptor()
+    padded = decryptor.update(ciphertext) + decryptor.finalize()
+    padding = padded[-1]
+    if padding < 1 or padding > 16 or padded[-padding:] != bytes([padding]) * padding:
+        raise DomainError(ErrorCode.INVALID_REQUEST, "Feishu encrypted body padding is invalid.", 400)
+    return padded[:-padding]
 
 
 def extract_feishu_text_message(payload: dict[str, Any]) -> dict[str, str | None]:

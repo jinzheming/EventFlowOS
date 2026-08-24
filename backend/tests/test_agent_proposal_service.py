@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 from personal_affairs.api.schemas import (
@@ -84,6 +84,23 @@ class FakeItemService:
         return self.items.item, True
 
 
+class FakeReminderService:
+    calls: list[dict[str, Any]] = []
+
+    def __init__(self, reminders, items, settings):
+        self.reminders = reminders
+        self.items = items
+        self.settings = settings
+
+    def upsert(self, user_id: UUID, item_id: UUID, request) -> dict:
+        self.calls.append({"user_id": user_id, "item_id": item_id, "request": request})
+        return {"item_id": item_id, "timing": request.timing.value, "offset_minutes": request.offset_minutes}
+
+
+class FakeSettings:
+    default_timezone = "Asia/Shanghai"
+
+
 def test_propose_records_pending_candidate() -> None:
     user_id = uuid4()
     proposals = FakeProposals()
@@ -129,6 +146,58 @@ def test_approve_create_item_uses_proposal_idempotency(monkeypatch) -> None:
     assert proposal["state"] == "approved"
     assert item == items.item
     assert len(FakeItemService.calls) == 1
+
+
+def test_approve_tencent_meeting_creates_default_reminder_once(monkeypatch) -> None:
+    user_id = uuid4()
+    proposal_id = uuid4()
+    proposals = FakeProposals({
+        "id": proposal_id,
+        "source_type": "feishu_im",
+        "source_ref": "msg-1",
+        "state": "pending",
+        "proposed_action": "create_item",
+        "proposed_payload": {
+            "title": "项目例会",
+            "scope": "work",
+            "status": "planned",
+            "all_day": False,
+            "start_at": "2026-08-24T10:00:00+08:00",
+        },
+        "evidence": {
+            "parser": "tencent_meeting_invite_v1",
+            "confidence": 0.9,
+            "meeting_id": "987654321",
+            "join_url": "https://meeting.tencent.com/dm/example",
+        },
+    })
+    items = FakeItems()
+    items.item = items.item | {"start_at": "2026-08-24T10:00:00+08:00"}
+    FakeItemService.calls = []
+    FakeReminderService.calls = []
+    monkeypatch.setattr(service_module, "ItemService", FakeItemService)
+    monkeypatch.setattr(service_module, "ReminderService", FakeReminderService)
+
+    service = AgentProposalService(
+        proposals,
+        items,
+        FakeActivity(),
+        reminders=cast(Any, object()),
+        settings=cast(Any, FakeSettings()),
+    )
+    proposal, item = service.approve(user_id, proposal_id, AgentProposalApprove())
+
+    assert proposal["state"] == "approved"
+    assert item == items.item
+    assert len(FakeReminderService.calls) == 1
+    reminder = FakeReminderService.calls[0]["request"]
+    assert reminder.timing.value == "before_start"
+    assert reminder.offset_minutes == 10
+    assert reminder.timezone == "Asia/Shanghai"
+    assert reminder.external_enabled is True
+
+    service.approve(user_id, proposal_id, AgentProposalApprove())
+    assert len(FakeReminderService.calls) == 1
 
 
 def test_reject_does_not_apply_item() -> None:

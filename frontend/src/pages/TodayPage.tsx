@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FormEvent, useMemo, useState } from 'react';
 import { CheckCircle2, Circle as CircleIcon } from 'lucide-react';
-import { api, HabitWeek, Item, Scope, Session } from '../api/client';
+import { AgentProposal, api, HabitWeek, Item, Scope, Session } from '../api/client';
+import { AgentProposalDeck } from '../components/AgentProposalDeck';
 import { PersonalItemDrawer } from '../components/PersonalItemDrawer';
 import { ProjectDrawer } from '../components/ProjectDrawer';
 import { QuickFilterBar } from '../components/QuickFilterBar';
@@ -11,7 +12,7 @@ import { usePatchItem, useSaveItemWithReminder } from '../hooks/useItemActions';
 import { usePatchProject } from '../hooks/useProjectActions';
 import { useToggleDone } from '../hooks/useToggleDone';
 import { useUndo } from '../hooks/useUndo';
-import { todayString } from '../lib/dates';
+import { addDaysString, todayString } from '../lib/dates';
 import { buildPersonalPayload, buildWorkPayload, emptyPersonalDraft, emptyWorkDraft } from '../lib/drafts';
 import { ItemQuickFilter, matchesQuickFilter, todayQuickFilters } from '../lib/itemFilters';
 import { buildProjectPatch } from '../lib/projects';
@@ -22,6 +23,7 @@ export function TodayPage({ session }: { session: Session }) {
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const workItems = useQuery({ queryKey: ['items', 'work'], queryFn: () => api.items('work', true) });
   const personalItems = useQuery({ queryKey: ['items', 'personal'], queryFn: () => api.items('personal', true) });
+  const proposals = useQuery({ queryKey: ['agent-proposals', 'pending'], queryFn: () => api.agentProposals('pending') });
   const focusToday = useQuery({ queryKey: ['focus', 'today'], queryFn: api.focusToday, refetchInterval: 60000 });
   const habits = useQuery({ queryKey: ['habits', 'week'], queryFn: () => api.habitsWeek(0) });
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
@@ -42,6 +44,7 @@ export function TodayPage({ session }: { session: Session }) {
     () => today.due.filter((item) => matchesQuickFilter(item, quickFilter)),
     [today.due, quickFilter],
   );
+  const todayProposals = useMemo(() => (proposals.data ?? []).filter(isTodaySurfaceProposal), [proposals.data]);
 
   function invalidateToday(projectId?: string) {
     queryClient.invalidateQueries({ queryKey: ['items', 'work'] });
@@ -129,6 +132,13 @@ export function TodayPage({ session }: { session: Session }) {
           </p>
         </div>
       </header>
+      <AgentProposalDeck
+        proposals={todayProposals}
+        session={session}
+        title="今日待确认"
+        compact
+        onAppliedItem={(item) => setSelectedItemId(item.id)}
+      />
       <form
         className="personal-quick-add"
         onSubmit={(event: FormEvent) => {
@@ -254,4 +264,15 @@ export function TodayPage({ session }: { session: Session }) {
       )}
     </section>
   );
+}
+
+function isTodaySurfaceProposal(proposal: AgentProposal) {
+  if (proposal.risk_tier === 'l3') return true;
+  const schedule = [proposal.proposed_payload.start_at, proposal.proposed_payload.due_at, proposal.proposed_payload.start_date, proposal.proposed_payload.due_date]
+    .map((value) => (typeof value === 'string' ? value.slice(0, 10) : ''))
+    .filter(Boolean);
+  if (schedule.length === 0) return false;
+  const today = todayString();
+  const tomorrowText = addDaysString(1);
+  return schedule.some((day) => day >= today && day <= tomorrowText);
 }

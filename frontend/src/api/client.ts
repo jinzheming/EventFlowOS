@@ -3,6 +3,11 @@ export type ItemStatus = 'inbox' | 'planned' | 'in_progress' | 'waiting' | 'done
 export type Priority = 'low' | 'normal' | 'high' | 'urgent';
 export type ProjectStatus = 'planned' | 'active' | 'on_hold' | 'completed' | 'cancelled';
 export type ProjectHealth = 'unknown' | 'on_track' | 'at_risk' | 'blocked';
+export type ActorType = 'human' | 'agent' | 'system';
+export type AgentProposalSourceType = 'agent' | 'feishu_im' | 'tencent_meeting';
+export type AgentProposalRiskTier = 'l1' | 'l2' | 'l3';
+export type AgentProposalState = 'pending' | 'approved' | 'edited_approved' | 'rejected' | 'ignored' | 'expired';
+export type AgentProposalAction = 'create_item' | 'patch_item';
 
 export interface Session {
   user_id: string;
@@ -123,6 +128,10 @@ export interface Item {
   cancelled_at: string | null;
   archived_at: string | null;
   deleted_at: string | null;
+  created_by_actor: ActorType | string;
+  updated_by_actor: ActorType | string;
+  source_context: Record<string, unknown>;
+  execution_output: Record<string, unknown>;
   version: number;
   created_at: string;
   updated_at: string;
@@ -131,6 +140,32 @@ export interface Item {
 }
 
 export type ItemPayload = Omit<Partial<Item>, 'people'> & { tag_ids?: string[] | null; people?: Array<{ person_id: string; role: PersonRole } | ItemPerson> | null };
+
+export interface AgentProposal {
+  id: string;
+  source_type: AgentProposalSourceType;
+  source_ref: string | null;
+  risk_tier: AgentProposalRiskTier;
+  confidence: number | null;
+  state: AgentProposalState;
+  proposed_action: AgentProposalAction;
+  proposed_payload: Record<string, unknown>;
+  evidence: Record<string, unknown>;
+  reason: string | null;
+  target_item_id: string | null;
+  applied_item_id: string | null;
+  expires_at: string | null;
+  decided_at: string | null;
+  decided_by_actor: ActorType | string | null;
+  decision_note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentProposalDecision {
+  proposal: AgentProposal;
+  item: Item | null;
+}
 
 export type TagPayload = Partial<Pick<Tag, 'name' | 'color' | 'parent_id' | 'pinned'>>;
 
@@ -341,6 +376,14 @@ export const api = {
     request<Item[]>(
       `/items?scope=${scope}&include_archived=${includeArchived}${search ? `&search=${encodeURIComponent(search)}` : ''}`,
     ),
+  agentProposals: (state: AgentProposalState = 'pending') =>
+    request<AgentProposal[]>(`/agent-proposals?state=${state}&limit=500`),
+  approveProposal: (csrf: string, proposalId: string, payload: { edited_payload?: Record<string, unknown>; decision_note?: string | null } = {}) =>
+    request<AgentProposalDecision>(`/agent-proposals/${proposalId}/approve`, { method: 'POST', body: JSON.stringify(payload) }, csrf),
+  rejectProposal: (csrf: string, proposalId: string, decision_note?: string | null) =>
+    request<AgentProposal>(`/agent-proposals/${proposalId}/reject`, { method: 'POST', body: JSON.stringify({ decision_note }) }, csrf),
+  ignoreProposal: (csrf: string, proposalId: string, decision_note?: string | null) =>
+    request<AgentProposal>(`/agent-proposals/${proposalId}/ignore`, { method: 'POST', body: JSON.stringify({ decision_note }) }, csrf),
   createItem: (csrf: string, payload: ItemPayload & { title: string; scope: Scope }) =>
     request<Item>('/items', { method: 'POST', body: JSON.stringify(payload) }, csrf),
   patchItem: (csrf: string, item: Item, payload: ItemPayload) =>

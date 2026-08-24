@@ -13,10 +13,12 @@ from personal_affairs.api.schemas import (
     AgentProposalReject,
 )
 from personal_affairs.application.agent_proposal_service import AgentProposalService
+from personal_affairs.config import get_settings
 from personal_affairs.domain.enums import AgentProposalState
 from personal_affairs.storage.repositories.activity import ActivityRepository
 from personal_affairs.storage.repositories.agent_proposals import AgentProposalsRepository
 from personal_affairs.storage.repositories.items import ItemsRepository
+from personal_affairs.storage.repositories.reminders import RemindersRepository
 
 router = APIRouter(prefix="/agent-proposals", tags=["agent-proposals"])
 
@@ -26,6 +28,8 @@ def _service(conn: Connection) -> AgentProposalService:
         AgentProposalsRepository(conn),
         ItemsRepository(conn),
         ActivityRepository(conn),
+        RemindersRepository(conn),
+        get_settings(),
     )
 
 

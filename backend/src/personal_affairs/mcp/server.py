@@ -18,15 +18,30 @@ from uuid import UUID
 
 from mcp.server.fastmcp import FastMCP
 
-from personal_affairs.api.schemas import ItemCreate, ItemPatch, ReminderPut
+from personal_affairs.api.schemas import (
+    AgentProposalApprove,
+    AgentProposalCreate,
+    ItemCreate,
+    ItemPatch,
+    ReminderPut,
+)
+from personal_affairs.application.agent_context_service import (
+    find_free_slots as calculate_free_slots,
+)
+from personal_affairs.application.agent_context_service import (
+    get_executive_briefing as calculate_executive_briefing,
+)
+from personal_affairs.application.agent_proposal_service import AgentProposalService
 from personal_affairs.application.calendar_query_service import CalendarQueryService
 from personal_affairs.application.item_service import ItemService
+from personal_affairs.application.meeting_invite_parser import parse_tencent_meeting_invite
 from personal_affairs.application.people_service import PeopleService
 from personal_affairs.application.reminder_service import ReminderService
 from personal_affairs.config import get_settings
-from personal_affairs.domain.enums import ItemScope, ItemStatus, ReminderTiming
+from personal_affairs.domain.enums import AgentProposalState, ItemScope, ItemStatus, ReminderTiming
 from personal_affairs.storage.database import connection
 from personal_affairs.storage.repositories.activity import ActivityRepository
+from personal_affairs.storage.repositories.agent_proposals import AgentProposalsRepository
 from personal_affairs.storage.repositories.items import ItemsRepository
 from personal_affairs.storage.repositories.people import PeopleRepository
 from personal_affairs.storage.repositories.projects import ProjectsRepository
@@ -87,6 +102,25 @@ def _parse_datetime(value: str | None) -> datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     return parsed
+
+
+def _parse_json_object(value: str | None, field_name: str) -> dict[str, Any]:
+    if not value:
+        return {}
+    decoded = json.loads(value)
+    if not isinstance(decoded, dict):
+        raise ValueError(f"{field_name} must be a JSON object")
+    return decoded
+
+
+def _proposal_service(conn) -> AgentProposalService:
+    return AgentProposalService(
+        AgentProposalsRepository(conn),
+        ItemsRepository(conn),
+        ActivityRepository(conn),
+        RemindersRepository(conn),
+        get_settings(),
+    )
 
 
 # ---------------------------------------------------------------- items
@@ -252,6 +286,128 @@ async def pa_complete_item(item_id: str, if_match: str) -> dict | None:
         )
 
     return await _authed(_run)
+
+
+# ---------------------------------------------------------------- agent proposals
+
+@mcp.tool()
+async def pa_propose_item(
+    proposed_payload_json: str,
+    source_type: str = "agent",
+    source_ref: str | None = None,
+    risk_tier: str = "l2",
+    confidence: float | None = None,
+    proposed_action: str = "create_item",
+    evidence_json: str | None = None,
+    reason: str | None = None,
+    target_item_id: str | None = None,
+    expires_at: str | None = None,
+) -> dict:
+    """Create a human-reviewable item proposal. JSON inputs must be objects."""
+    payload = _parse_json_object(proposed_payload_json, "proposed_payload_json")
+    evidence = _parse_json_object(evidence_json, "evidence_json")
+    request = AgentProposalCreate(
+        source_type=source_type,
+        source_ref=source_ref,
+        risk_tier=risk_tier,
+        confidence=confidence,
+        proposed_action=proposed_action,
+        proposed_payload=payload,
+        evidence=evidence,
+        reason=reason,
+        target_item_id=UUID(target_item_id) if target_item_id else None,
+        expires_at=_parse_datetime(expires_at),
+    )
+    return await _authed(lambda conn, uid: _proposal_service(conn).propose(uid, request))
+
+
+@mcp.tool()
+async def pa_approve_proposal(
+    proposal_id: str,
+    edited_payload_json: str | None = None,
+    decision_note: str | None = None,
+) -> dict:
+    """Approve a proposal. edited_payload_json enables controlled field edits before approval."""
+    edited_payload = _parse_json_object(edited_payload_json, "edited_payload_json") if edited_payload_json else None
+    request = AgentProposalApprove(edited_payload=edited_payload, decision_note=decision_note)
+
+    def _run(conn, uid):
+        proposal, item = _proposal_service(conn).approve(uid, UUID(proposal_id), request)
+        return {"proposal": proposal, "item": item}
+
+    return await _authed(_run)
+
+
+@mcp.tool()
+async def pa_reject_proposal(proposal_id: str, decision_note: str | None = None, ignore: bool = False) -> dict | None:
+    """Reject a proposal; pass ignore=true to mark it ignored instead of rejected."""
+    state = AgentProposalState.IGNORED if ignore else AgentProposalState.REJECTED
+    return await _authed(lambda conn, uid: _proposal_service(conn).reject(uid, UUID(proposal_id), state, decision_note))
+
+
+@mcp.tool()
+async def pa_parse_meeting_invite(raw_text: str, timezone: str | None = None) -> dict:
+    """Parse Tencent Meeting invite text without writing data."""
+    cfg = get_settings()
+    parsed = parse_tencent_meeting_invite(raw_text, timezone or cfg.default_timezone)
+    return {
+        "title": parsed.title,
+        "start_at": parsed.start_at,
+        "due_at": parsed.due_at,
+        "estimated_minutes": parsed.estimated_minutes,
+        "meeting_id": parsed.meeting_id,
+        "meeting_code": parsed.meeting_code,
+        "join_url": parsed.join_url,
+        "missing_fields": parsed.missing_fields,
+        "confidence": parsed.confidence,
+        "proposed_item": parsed.proposed_item,
+    }
+
+
+@mcp.tool()
+async def pa_get_executive_briefing(
+    target_date: str | None = None,
+    window_days: int = 1,
+    include_done: bool = False,
+) -> dict:
+    """Read-only executive briefing: today, overdue, proposals, reminders, conflicts, focus."""
+    return await _authed(
+        lambda conn, uid: calculate_executive_briefing(
+            conn,
+            uid,
+            get_settings(),
+            target_date=target_date,
+            window_days=window_days,
+            include_done=include_done,
+        )
+    )
+
+
+@mcp.tool()
+async def pa_find_free_slots(
+    duration_minutes: int,
+    start_date: str,
+    end_date: str,
+    preferred_start: str = "09:00",
+    preferred_end: str = "18:00",
+    buffer_minutes: int = 0,
+    limit: int = 20,
+) -> dict:
+    """Read-only free-slot finder based on existing items and milestones."""
+    return await _authed(
+        lambda conn, uid: calculate_free_slots(
+            conn,
+            uid,
+            get_settings(),
+            duration_minutes=duration_minutes,
+            start_date=start_date,
+            end_date=end_date,
+            preferred_start=preferred_start,
+            preferred_end=preferred_end,
+            buffer_minutes=buffer_minutes,
+            limit=limit,
+        )
+    )
 
 
 # ---------------------------------------------------------------- people

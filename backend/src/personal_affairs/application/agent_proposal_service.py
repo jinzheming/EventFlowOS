@@ -6,13 +6,17 @@ from personal_affairs.api.schemas import (
     AgentProposalCreate,
     ItemCreate,
     ItemPatch,
+    ReminderPut,
 )
 from personal_affairs.application.item_service import ItemService
-from personal_affairs.domain.enums import AgentProposalAction, AgentProposalState
+from personal_affairs.application.reminder_service import ReminderService
+from personal_affairs.config import Settings
+from personal_affairs.domain.enums import AgentProposalAction, AgentProposalState, ReminderTiming
 from personal_affairs.domain.errors import DomainError, ErrorCode, conflict_error
 from personal_affairs.storage.repositories.activity import ActivityRepository
 from personal_affairs.storage.repositories.agent_proposals import AgentProposalsRepository
 from personal_affairs.storage.repositories.items import ItemsRepository
+from personal_affairs.storage.repositories.reminders import RemindersRepository
 
 
 class AgentProposalService:
@@ -21,10 +25,14 @@ class AgentProposalService:
         proposals: AgentProposalsRepository,
         items: ItemsRepository,
         activity: ActivityRepository,
+        reminders: RemindersRepository | None = None,
+        settings: Settings | None = None,
     ):
         self.proposals = proposals
         self.items = items
         self.activity = activity
+        self.reminders = reminders
+        self.settings = settings
 
     def propose(self, user_id: UUID, request: AgentProposalCreate) -> dict:
         proposal = self.proposals.create(user_id, request.model_dump(mode="json", exclude_none=True))
@@ -107,6 +115,7 @@ class AgentProposalService:
                 created_by_actor="agent",
                 source_context=source_context,
             )
+            self._maybe_create_default_meeting_reminder(user_id, item, source_context)
             return item
         if action == AgentProposalAction.PATCH_ITEM.value:
             target_item_id = proposal.get("target_item_id") or payload.pop("target_item_id", None)
@@ -126,6 +135,29 @@ class AgentProposalService:
                 source_context=source_context,
             )
         raise conflict_error(ErrorCode.PROPOSAL_ACTION_UNSUPPORTED, "Proposal action is not supported.")
+
+    def _maybe_create_default_meeting_reminder(
+        self,
+        user_id: UUID,
+        item: dict[str, Any],
+        source_context: dict[str, Any],
+    ) -> None:
+        if self.reminders is None or self.settings is None:
+            return
+        if not source_context.get("meeting_meta"):
+            return
+        if not item.get("start_at"):
+            return
+        ReminderService(self.reminders, self.items, self.settings).upsert(
+            user_id,
+            item["id"],
+            ReminderPut(
+                timing=ReminderTiming.BEFORE_START,
+                offset_minutes=10,
+                timezone=self.settings.default_timezone,
+                external_enabled=True,
+            ),
+        )
 
 
 def _source_context_from_evidence(evidence: dict[str, Any]) -> dict[str, Any]:

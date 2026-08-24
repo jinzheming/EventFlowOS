@@ -14,6 +14,7 @@ import { EstimatedDurationSelect } from './EstimatedDurationSelect';
 import { QuarterTimePicker } from './QuarterTimePicker';
 import { PersonPicker } from './PersonPicker';
 import { TagPicker } from './TagPicker';
+import { MeetingInfoPanel } from './MeetingInfoPanel';
 
 export function PersonalItemDrawer({
   item,
@@ -101,6 +102,7 @@ export function PersonalItemDrawer({
           事项标题
           <input data-autofocus value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} />
         </label>
+        <MeetingInfoPanel item={item} />
         <div className="field-grid">
           <label>
             开始日期

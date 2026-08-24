@@ -3483,6 +3483,177 @@ button.health-strip {
   color: var(--text-faint);
 }
 
+.agent-proposal-empty {
+  margin: 0;
+}
+
+.agent-proposal-deck {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: 12px;
+}
+
+.agent-proposal-deck.compact {
+  padding: 10px;
+}
+
+.agent-proposal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agent-proposal-header h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.agent-proposal-header > span {
+  min-width: 28px;
+  min-height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-weight: 700;
+}
+
+.agent-proposal-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-subtle);
+  padding: 12px;
+}
+
+.agent-proposal-card.risk-l3 {
+  border-color: var(--warning);
+}
+
+.agent-proposal-main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.agent-proposal-main h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.agent-proposal-main p,
+.agent-proposal-reason,
+.agent-proposal-missing,
+.meeting-info-panel p {
+  margin: 2px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.agent-proposal-risk,
+.agent-proposal-confidence,
+.agent-proposal-meeting span,
+.agent-proposal-meeting a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  padding: 4px 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.agent-proposal-risk {
+  color: var(--warning);
+}
+
+.agent-proposal-meeting,
+.agent-proposal-actions,
+.meeting-info-grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-proposal-evidence summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.agent-proposal-evidence pre {
+  max-height: 220px;
+  overflow: auto;
+  margin: 8px 0 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.agent-proposal-edit {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.meeting-info-panel {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-subtle);
+  padding: 10px;
+}
+
+.meeting-info-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.meeting-info-grid a,
+.meeting-info-grid span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  padding: 4px 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-decoration: none;
+}
+
+@media (max-width: 720px) {
+  .agent-proposal-main {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .agent-proposal-confidence {
+    justify-self: start;
+  }
+}
+
 .identity-rules {
   margin-top: 12px;
   padding-top: 12px;

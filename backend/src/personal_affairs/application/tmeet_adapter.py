@@ -32,15 +32,20 @@ def lookup_tencent_meeting(
     cfg: Settings,
     *,
     meeting_id: str | None = None,
+    meeting_code: str | None = None,
     runner: TMeetRunner = subprocess.run,
 ) -> TMeetLookupResult:
     if not cfg.tmeet_enabled:
         return TMeetLookupResult(status="disabled")
     if "meeting:get" not in _allowed_commands(cfg.tmeet_allowed_commands):
         return TMeetLookupResult(status="not_allowed", error_category="command_not_allowed")
-    if not meeting_id:
-        return TMeetLookupResult(status="skipped", error_category="missing_meeting_id")
-    command = [cfg.tmeet_bin, "meeting", "get", "--meeting-id", meeting_id, "--format", "json"]
+    if meeting_id:
+        identifier_args = ["--meeting-id", meeting_id]
+    elif meeting_code:
+        identifier_args = ["--meeting-code", meeting_code]
+    else:
+        return TMeetLookupResult(status="skipped", error_category="missing_meeting_identifier")
+    command = [cfg.tmeet_bin, "meeting", "get", *identifier_args, "--format", "json"]
     env = _tmeet_env(cfg)
     start = perf_counter()
     try:
