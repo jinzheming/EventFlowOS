@@ -68,6 +68,64 @@ paths:
       responses:
         '200': { description: OK }
         '401': { description: Authentication required }
+  /agent-proposals:
+    get:
+      summary: List agent-generated proposals, pending by default.
+      parameters:
+        - in: query
+          name: state
+          schema: { type: string, enum: [pending, approved, edited_approved, rejected, ignored, expired] }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+      responses:
+        '200': { description: OK }
+        '401': { description: Authentication required }
+    post:
+      summary: Create an agent proposal without writing a formal item.
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+      responses:
+        '200': { description: OK }
+        '403': { description: CSRF or write scope required }
+  /agent-proposals/{proposal_id}:
+    get:
+      summary: Get a single agent proposal.
+      parameters:
+        - $ref: '#/components/parameters/ProposalId'
+      responses:
+        '200': { description: OK }
+        '404': { description: Not found }
+  /agent-proposals/{proposal_id}/approve:
+    post:
+      summary: Approve a proposal and create or update the formal item through ItemService.
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+        - $ref: '#/components/parameters/ProposalId'
+      responses:
+        '200': { description: OK }
+        '404': { description: Not found }
+        '409': { description: Proposal already decided }
+  /agent-proposals/{proposal_id}/reject:
+    post:
+      summary: Reject a proposal without writing a formal item.
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+        - $ref: '#/components/parameters/ProposalId'
+      responses:
+        '200': { description: OK }
+        '404': { description: Not found }
+        '409': { description: Proposal already decided }
+  /agent-proposals/{proposal_id}/ignore:
+    post:
+      summary: Ignore a proposal without writing a formal item.
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+        - $ref: '#/components/parameters/ProposalId'
+      responses:
+        '200': { description: OK }
+        '404': { description: Not found }
+        '409': { description: Proposal already decided }
   /items:
     get:
       summary: List work or personal items.
@@ -295,7 +353,11 @@ components:
       name: webhook_id
       required: true
       schema: { type: string, format: uuid }
-      schema: { type: string }
+    ProposalId:
+      in: path
+      name: proposal_id
+      required: true
+      schema: { type: string, format: uuid }
     IfMatch:
       in: header
       name: if-match

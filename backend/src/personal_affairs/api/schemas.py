@@ -5,6 +5,11 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from personal_affairs.domain.enums import (
+    ActorType,
+    AgentProposalAction,
+    AgentProposalRiskTier,
+    AgentProposalSourceType,
+    AgentProposalState,
     DeliveryChannel,
     DeliveryStatus,
     ItemScope,
@@ -192,6 +197,10 @@ class ItemOut(BaseModel):
     cancelled_at: datetime | None
     archived_at: datetime | None
     deleted_at: datetime | None = None
+    created_by_actor: str = "human"
+    updated_by_actor: str = "human"
+    source_context: dict[str, Any] = {}
+    execution_output: dict[str, Any] = {}
     version: int
     created_at: datetime
     updated_at: datetime
@@ -204,6 +213,54 @@ class ItemTagOut(BaseModel):
     name: str
     color: str
     parent_id: UUID | None = None
+
+
+class AgentProposalCreate(BaseModel):
+    source_type: AgentProposalSourceType = AgentProposalSourceType.AGENT
+    source_ref: str | None = Field(default=None, max_length=500)
+    risk_tier: AgentProposalRiskTier = AgentProposalRiskTier.L2
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    proposed_action: AgentProposalAction = AgentProposalAction.CREATE_ITEM
+    proposed_payload: dict[str, Any]
+    evidence: dict[str, Any] = {}
+    reason: str | None = Field(default=None, max_length=2000)
+    target_item_id: UUID | None = None
+    expires_at: datetime | None = None
+
+
+class AgentProposalApprove(BaseModel):
+    edited_payload: dict[str, Any] | None = None
+    decision_note: str | None = Field(default=None, max_length=1000)
+
+
+class AgentProposalReject(BaseModel):
+    decision_note: str | None = Field(default=None, max_length=1000)
+
+
+class AgentProposalOut(BaseModel):
+    id: UUID
+    source_type: AgentProposalSourceType
+    source_ref: str | None = None
+    risk_tier: AgentProposalRiskTier
+    confidence: float | None = None
+    state: AgentProposalState
+    proposed_action: AgentProposalAction
+    proposed_payload: dict[str, Any]
+    evidence: dict[str, Any] = {}
+    reason: str | None = None
+    target_item_id: UUID | None = None
+    applied_item_id: UUID | None = None
+    expires_at: datetime | None = None
+    decided_at: datetime | None = None
+    decided_by_actor: ActorType | None = None
+    decision_note: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AgentProposalDecisionOut(BaseModel):
+    proposal: AgentProposalOut
+    item: ItemOut | None = None
 
 
 class PersonCreate(BaseModel):

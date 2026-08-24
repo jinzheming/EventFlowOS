@@ -67,3 +67,35 @@ class DeliveryStatus(StrEnum):
     RETRY_WAIT = "retry_wait"
     DEAD = "dead"
     CANCELLED = "cancelled"
+
+
+class ActorType(StrEnum):
+    HUMAN = "human"
+    AGENT = "agent"
+    SYSTEM = "system"
+
+
+class AgentProposalSourceType(StrEnum):
+    AGENT = "agent"
+    FEISHU_IM = "feishu_im"
+    TENCENT_MEETING = "tencent_meeting"
+
+
+class AgentProposalRiskTier(StrEnum):
+    L1 = "l1"
+    L2 = "l2"
+    L3 = "l3"
+
+
+class AgentProposalState(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    EDITED_APPROVED = "edited_approved"
+    REJECTED = "rejected"
+    IGNORED = "ignored"
+    EXPIRED = "expired"
+
+
+class AgentProposalAction(StrEnum):
+    CREATE_ITEM = "create_item"
+    PATCH_ITEM = "patch_item"

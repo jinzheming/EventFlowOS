@@ -69,7 +69,15 @@ class ItemService:
         self.items = items
         self.activity = activity
 
-    def create(self, user_id: UUID, request: ItemCreate) -> tuple[dict, bool]:
+    def create(
+        self,
+        user_id: UUID,
+        request: ItemCreate,
+        *,
+        created_by_actor: str = "human",
+        source_context: dict[str, Any] | None = None,
+        execution_output: dict[str, Any] | None = None,
+    ) -> tuple[dict, bool]:
         payload = request.model_dump(exclude_none=True)
         client_request_id = payload.pop("client_request_id", None)
         request_hash = create_request_hash(payload)  # 包含 tag_ids 和 people
@@ -89,6 +97,12 @@ class ItemService:
                 )
             if state == "replay" and snapshot:
                 return snapshot, False
+        payload["created_by_actor"] = created_by_actor
+        payload["updated_by_actor"] = created_by_actor
+        if source_context is not None:
+            payload["source_context"] = source_context
+        if execution_output is not None:
+            payload["execution_output"] = execution_output
         item = self.items.create_item(user_id, payload)
         if people is not None:
             PeopleRepository(self.items.conn).replace_item_people(user_id, item["id"], people)
@@ -104,7 +118,18 @@ class ItemService:
         )
         return item, True
 
-    def patch(self, user_id: UUID, item_id: UUID, current: dict, expected_version: int, request: ItemPatch) -> dict:
+    def patch(
+        self,
+        user_id: UUID,
+        item_id: UUID,
+        current: dict,
+        expected_version: int,
+        request: ItemPatch,
+        *,
+        updated_by_actor: str = "human",
+        source_context: dict[str, Any] | None = None,
+        execution_output: dict[str, Any] | None = None,
+    ) -> dict:
         patch = request.model_dump(exclude_unset=True)
         tag_ids = patch.pop("tag_ids", None)
         people = _people_payload(patch.pop("people", None))
@@ -114,6 +139,12 @@ class ItemService:
         validate_schedule(_schedule_from_payload(next_payload))
         if "status" in patch:
             validate_item_transition(ItemStatus(current["status"]), ItemStatus(patch["status"]))
+        activity_fields = sorted(patch.keys())
+        patch["updated_by_actor"] = updated_by_actor
+        if source_context is not None:
+            patch["source_context"] = source_context
+        if execution_output is not None:
+            patch["execution_output"] = execution_output
         updated = self.items.patch_item(user_id, item_id, expected_version, patch)
         if not updated:
             raise conflict_error(ErrorCode.VERSION_CONFLICT, "Item version is stale.")
@@ -125,7 +156,7 @@ class ItemService:
             updated = self.items.get_item(user_id, item_id) or updated
         if updated["status"] in {"done", "cancelled"}:
             self.items.cancel_pending_deliveries(user_id, item_id)
-        fields = sorted(patch.keys())
+        fields = activity_fields
         if people is not None:
             fields.append("people")
         if tag_ids is not None:

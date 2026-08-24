@@ -8,6 +8,7 @@ from personal_affairs import __version__
 from personal_affairs.api.middleware import RequestIdMiddleware
 from personal_affairs.api.problem_details import domain_error_handler, unhandled_error_handler
 from personal_affairs.api.routes import (
+    agent_proposals,
     auth,
     calendar,
     export,
@@ -61,6 +62,7 @@ def create_app() -> FastAPI:
 
     app.include_router(system.router, prefix="/api/v1")
     app.include_router(auth.router, prefix="/api/v1")
+    app.include_router(agent_proposals.router, prefix="/api/v1")
     app.include_router(items.router, prefix="/api/v1")
     app.include_router(focus.router, prefix="/api/v1")
     app.include_router(habits.router, prefix="/api/v1")

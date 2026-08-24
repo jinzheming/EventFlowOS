@@ -14,14 +14,18 @@ ITEM_COLUMNS = """
     i.id, i.scope, i.project_id, p.name AS project_name, i.title, i.notes, i.status, i.priority,
     i.all_day, i.start_at, i.due_at, i.start_date, i.due_date, i.waiting_on, i.waiting_follow_up_date,
     i.recurrence_freq, i.recurrence_interval, i.recurrence_until, i.recurrence_count, i.estimated_minutes,
-    i.completed_at, i.cancelled_at, i.archived_at, i.deleted_at, i.version, i.created_at, i.updated_at
+    i.completed_at, i.cancelled_at, i.archived_at, i.deleted_at,
+    i.created_by_actor, i.updated_by_actor, i.source_context, i.execution_output,
+    i.version, i.created_at, i.updated_at
 """
 
 ITEM_RETURN_COLUMNS = """
     id, scope, project_id, NULL::text AS project_name, title, notes, status, priority,
     all_day, start_at, due_at, start_date, due_date, waiting_on, waiting_follow_up_date,
     recurrence_freq, recurrence_interval, recurrence_until, recurrence_count, estimated_minutes,
-    completed_at, cancelled_at, archived_at, deleted_at, version, created_at, updated_at
+    completed_at, cancelled_at, archived_at, deleted_at,
+    created_by_actor, updated_by_actor, source_context, execution_output,
+    version, created_at, updated_at
 """
 
 
@@ -133,8 +137,9 @@ class ItemsRepository:
             INSERT INTO personal_affairs.items(
                 user_id, scope, project_id, title, notes, status, priority, all_day,
                 start_at, due_at, start_date, due_date, waiting_on, waiting_follow_up_date,
-                recurrence_freq, recurrence_interval, recurrence_until, recurrence_count, estimated_minutes
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                recurrence_freq, recurrence_interval, recurrence_until, recurrence_count, estimated_minutes,
+                created_by_actor, updated_by_actor, source_context, execution_output
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING {ITEM_RETURN_COLUMNS}
             """,
             (
@@ -157,6 +162,10 @@ class ItemsRepository:
                 payload.get("recurrence_until"),
                 payload.get("recurrence_count"),
                 payload.get("estimated_minutes"),
+                payload.get("created_by_actor", "human"),
+                payload.get("updated_by_actor", payload.get("created_by_actor", "human")),
+                Jsonb(json_safe(payload.get("source_context") or {})),
+                Jsonb(json_safe(payload.get("execution_output") or {})),
             ),
         ).fetchone()
         assert row is not None
@@ -182,13 +191,16 @@ class ItemsRepository:
             "recurrence_until",
             "recurrence_count",
             "estimated_minutes",
+            "updated_by_actor",
+            "source_context",
+            "execution_output",
         }
         updates: list[str] = []
         params: list[Any] = []
         for key, value in patch.items():
             if key in allowed:
                 updates.append(f"{key} = %s")
-                params.append(value)
+                params.append(Jsonb(json_safe(value or {})) if key in {"source_context", "execution_output"} else value)
         if "status" in patch:
             if patch["status"] == "done":
                 updates.append("completed_at = COALESCE(completed_at, now())")
