@@ -53,6 +53,7 @@ class AgentProposalService:
             "source_type": proposal["source_type"],
             "source_ref": proposal.get("source_ref"),
         }
+        source_context.update(_source_context_from_evidence(proposal.get("evidence") or {}))
         item = self._apply_payload(user_id, proposal, payload, source_context)
         next_state = (
             AgentProposalState.EDITED_APPROVED.value
@@ -125,3 +126,23 @@ class AgentProposalService:
                 source_context=source_context,
             )
         raise conflict_error(ErrorCode.PROPOSAL_ACTION_UNSUPPORTED, "Proposal action is not supported.")
+
+
+def _source_context_from_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
+    source_context: dict[str, Any] = {}
+    if evidence.get("parser"):
+        source_context["parser"] = evidence["parser"]
+    if evidence.get("confidence") is not None:
+        source_context["confidence"] = evidence["confidence"]
+    if evidence.get("join_url"):
+        source_context["external_url"] = evidence["join_url"]
+    meeting_meta = {
+        key: evidence[key]
+        for key in ("meeting_id", "meeting_code", "join_url")
+        if evidence.get(key)
+    }
+    if meeting_meta:
+        source_context["meeting_meta"] = meeting_meta
+    if evidence.get("tmeet_lookup"):
+        source_context["tmeet_lookup"] = evidence["tmeet_lookup"]
+    return source_context

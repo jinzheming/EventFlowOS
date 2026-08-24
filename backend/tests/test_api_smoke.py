@@ -115,3 +115,4 @@ def test_health_and_openapi_do_not_require_database(monkeypatch) -> None:
         assert "post" in schema["paths"]["/api/v1/agent-proposals/{proposal_id}/ignore"]
         proposal_out = schema["components"]["schemas"]["AgentProposalOut"]["properties"]
         assert {"state", "risk_tier", "proposed_payload", "applied_item_id"} <= set(proposal_out)
+        assert "post" in schema["paths"]["/api/v1/integrations/feishu/im/events"]

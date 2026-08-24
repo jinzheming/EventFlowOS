@@ -126,6 +126,15 @@ paths:
         '200': { description: OK }
         '404': { description: Not found }
         '409': { description: Proposal already decided }
+  /integrations/feishu/im/events:
+    post:
+      summary: Receive Feishu IM URL verification and passive text message events.
+      security: []
+      responses:
+        '200': { description: OK }
+        '400': { description: Invalid request body }
+        '401': { description: Feishu token or signature verification failed }
+        '404': { description: Integration disabled }
   /items:
     get:
       summary: List work or personal items.

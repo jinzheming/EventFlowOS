@@ -1,4 +1,5 @@
 from functools import lru_cache
+from uuid import UUID
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -31,6 +32,16 @@ class Settings(BaseSettings):
     webhook_lease_seconds: int = 60
     webhook_max_attempts: int = 6
     webhook_timeout_seconds: float = 8.0
+    feishu_im_enabled: bool = False
+    feishu_im_verification_token: str | None = Field(default=None, repr=False)
+    feishu_im_encrypt_key: str | None = Field(default=None, repr=False)
+    feishu_im_default_user_id: UUID | None = None
+    feishu_im_default_username: str | None = None
+    tmeet_enabled: bool = False
+    tmeet_bin: str = "tmeet"
+    tmeet_timeout_seconds: float = 8.0
+    tmeet_home: str | None = Field(default=None, repr=False)
+    tmeet_allowed_commands: str = "meeting:get"
 
 
 @lru_cache

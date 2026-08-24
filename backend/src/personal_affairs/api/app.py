@@ -14,6 +14,7 @@ from personal_affairs.api.routes import (
     export,
     focus,
     habits,
+    integrations_feishu,
     items,
     people,
     preferences,
@@ -63,6 +64,7 @@ def create_app() -> FastAPI:
     app.include_router(system.router, prefix="/api/v1")
     app.include_router(auth.router, prefix="/api/v1")
     app.include_router(agent_proposals.router, prefix="/api/v1")
+    app.include_router(integrations_feishu.router, prefix="/api/v1")
     app.include_router(items.router, prefix="/api/v1")
     app.include_router(focus.router, prefix="/api/v1")
     app.include_router(habits.router, prefix="/api/v1")

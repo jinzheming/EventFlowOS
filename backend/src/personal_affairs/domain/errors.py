@@ -25,6 +25,7 @@ def conflict_error(code: str, message: str) -> DomainError:
 
 class ErrorCode:
     AUTH_REQUIRED = "AUTH_REQUIRED"
+    INVALID_REQUEST = "INVALID_REQUEST"
     BAD_CREDENTIALS = "BAD_CREDENTIALS"
     CSRF_REQUIRED = "CSRF_REQUIRED"
     PAT_SCOPE_FORBIDDEN = "PAT_SCOPE_FORBIDDEN"

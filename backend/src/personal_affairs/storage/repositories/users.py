@@ -55,6 +55,26 @@ class UsersRepository:
             )
         return {"id": row["id"], "username": row["username"], "timezone": row["timezone"]}
 
+    def get_by_id(self, user_id: UUID) -> dict | None:
+        return self.conn.execute(
+            """
+            SELECT id, username::text AS username, timezone
+            FROM personal_affairs.users
+            WHERE id = %s
+            """,
+            (user_id,),
+        ).fetchone()
+
+    def get_by_username(self, username: str) -> dict | None:
+        return self.conn.execute(
+            """
+            SELECT id, username::text AS username, timezone
+            FROM personal_affairs.users
+            WHERE username = %s
+            """,
+            (username,),
+        ).fetchone()
+
     def create_session(self, user_id: UUID, ttl_days: int = 30) -> dict:
         token = token_urlsafe(48)
         csrf = token_urlsafe(32)
