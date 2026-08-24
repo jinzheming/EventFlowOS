@@ -1,0 +1,318 @@
+openapi: 3.1.0
+info:
+  title: Personal Affairs API
+  version: 0.1.0
+servers:
+  - url: /api/v1
+security:
+  - cookieSession: []
+paths:
+  /auth/login:
+    post:
+      summary: Login and receive a HttpOnly session cookie plus CSRF token.
+      security: []
+      responses:
+        '200': { description: OK }
+        '401': { description: Bad credentials }
+  /auth/session:
+    get:
+      summary: Return the current session.
+      responses:
+        '200': { description: OK }
+        '401': { description: Authentication required }
+  /auth/tokens:
+    get:
+      summary: List personal access tokens for the current user.
+      responses:
+        '200': { description: OK }
+        '401': { description: Authentication required }
+    post:
+      summary: Create a personal access token (plaintext returned once) for agent access.
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+      responses:
+        '200': { description: OK }
+  /auth/tokens/{token_id}:
+    delete:
+      summary: Revoke a personal access token.
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+        - $ref: '#/components/parameters/TokenId'
+      responses:
+        '204': { description: No content }
+        '404': { description: Not found }
+  /webhooks:
+    get:
+      summary: List webhook subscriptions.
+      responses:
+        '200': { description: OK }
+        '401': { description: Authentication required }
+    post:
+      summary: Create a webhook subscription (secret returned once) for outbound event dispatch.
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+      responses:
+        '200': { description: OK }
+  /webhooks/{webhook_id}:
+    delete:
+      summary: Delete a webhook subscription.
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+        - $ref: '#/components/parameters/WebhookId'
+      responses:
+        '204': { description: No content }
+        '404': { description: Not found }
+  /webhooks/events:
+    get:
+      summary: List outbox events with delivery status (pending/retrying/delivering/dead/published).
+      responses:
+        '200': { description: OK }
+        '401': { description: Authentication required }
+  /items:
+    get:
+      summary: List work or personal items.
+      parameters:
+        - in: query
+          name: scope
+          schema: { type: string, enum: [work, personal] }
+        - in: query
+          name: include_archived
+          schema: { type: boolean, default: false }
+        - in: query
+          name: deleted
+          schema: { type: boolean, default: false }
+        - in: query
+          name: search
+          schema: { type: string, maxLength: 100 }
+      responses:
+        '200': { description: OK }
+    post:
+      summary: Create an item with optional client_request_id idempotency.
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+      responses:
+        '201': { description: Created }
+        '409': { description: Idempotency conflict }
+  /items/{item_id}:
+    get:
+      summary: Get an item.
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '200': { description: OK }
+        '404': { description: Not found }
+    delete:
+      summary: Soft-delete an item into the recycle bin (deactivates its reminder).
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '204': { description: No content }
+        '404': { description: Not found }
+    patch:
+      summary: Patch an item using If-Match optimistic locking.
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/Csrf'
+      responses:
+        '200': { description: OK }
+        '412': { description: Missing or stale version }
+  /items/{item_id}/restore-deleted:
+    post:
+      summary: Restore a soft-deleted item from the recycle bin.
+      responses:
+        '200': { description: OK }
+        '404': { description: Not found }
+  /items/{item_id}/purge:
+    delete:
+      summary: Permanently delete a soft-deleted item (cascades to tags/people/reminders links).
+      responses:
+        '204': { description: No content }
+        '404': { description: Not found }
+  /items/{item_id}/reminder:
+    put:
+      summary: Create or replace the visible P0 reminder rule for an item.
+      responses:
+        '200': { description: OK }
+    delete:
+      summary: Disable the active reminder rule and cancel pending deliveries.
+      responses:
+        '204': { description: No content }
+  /projects:
+    get:
+      summary: List projects.
+      responses:
+        '200': { description: OK }
+    post:
+      summary: Create a project.
+      responses:
+        '201': { description: Created }
+  /projects/{project_id}/items:
+    get:
+      summary: List items linked to a project.
+      responses:
+        '200': { description: OK }
+  /projects/{project_id}/milestones:
+    get:
+      summary: List project milestones.
+      responses:
+        '200': { description: OK }
+    post:
+      summary: Create a project milestone.
+      responses:
+        '201': { description: Created }
+  /projects/{project_id}/milestones/{milestone_id}:
+    patch:
+      summary: Update a milestone (title/status/due_date/weight).
+      responses:
+        '200': { description: OK }
+        '404': { description: Not found }
+    delete:
+      summary: Delete a milestone.
+      responses:
+        '204': { description: No content }
+        '404': { description: Not found }
+  /projects/{project_id}/updates:
+    get:
+      summary: List project progress updates.
+      responses:
+        '200': { description: OK }
+    post:
+      summary: Append a project progress update.
+      responses:
+        '201': { description: Created }
+  /calendar/events:
+    get:
+      summary: Project items and milestones into a calendar window.
+      parameters:
+        - in: query
+          name: from
+          required: true
+          schema: { type: string, format: date-time }
+        - in: query
+          name: to
+          required: true
+          schema: { type: string, format: date-time }
+      responses:
+        '200': { description: OK }
+  /reminders/deliveries:
+    get:
+      summary: List reminder deliveries; unseen=true filters to delivered, unacknowledged, unsnoozed.
+      parameters:
+        - in: query
+          name: channel
+          schema: { type: string, enum: [in_app, feishu, ntfy] }
+        - in: query
+          name: status
+          schema: { type: string, enum: [pending, delivering, delivered, retry_wait, dead, cancelled] }
+        - in: query
+          name: unseen
+          schema: { type: boolean, default: false }
+      responses:
+        '200': { description: OK }
+  /reminders/deliveries/{delivery_id}/ack:
+    post:
+      summary: Mark a delivered delivery as acknowledged (clears snooze).
+      responses:
+        '200': { description: OK }
+        '404': { description: Not found }
+  /reminders/deliveries/{delivery_id}/snooze:
+    post:
+      summary: Hide a delivered delivery until snooze_until.
+      responses:
+        '200': { description: OK }
+        '404': { description: Not found }
+  /reminders/deliveries/{delivery_id}/retry:
+    post:
+      summary: Requeue a dead delivery.
+      responses:
+        '200': { description: OK }
+        '404': { description: Not found }
+  /reminders/channels:
+    get:
+      summary: Report which external notification channels are configured (booleans only, never URLs).
+      responses:
+        '200': { description: OK }
+  /reminders/health:
+    get:
+      summary: Return worker heartbeat and delivery backlog health.
+      responses:
+        '200': { description: OK }
+  /push/vapid-key:
+    get:
+      summary: Report Web Push availability and the VAPID public key (private key is never exposed).
+      responses:
+        '200': { description: OK }
+  /push/subscriptions:
+    post:
+      summary: Register or refresh a Web Push subscription.
+      responses:
+        '201': { description: Created }
+    delete:
+      summary: Remove a Web Push subscription by endpoint.
+      responses:
+        '204': { description: No content }
+        '404': { description: Not found }
+  /export:
+    get:
+      summary: Export all user data as a JSON attachment.
+      responses:
+        '200': { description: OK }
+  /health:
+    get:
+      summary: Process liveness.
+      security: []
+      responses:
+        '200': { description: OK }
+  /ready:
+    get:
+      summary: Database and schema readiness.
+      security: []
+      responses:
+        '200': { description: OK }
+components:
+  securitySchemes:
+    cookieSession:
+      type: apiKey
+      in: cookie
+      name: pa_session
+    bearerPAT:
+      type: http
+      scheme: bearer
+      description: Personal access token (pa_...) for agent-native access.
+  parameters:
+    Csrf:
+      in: header
+      name: x-csrf-token
+      required: true
+    TokenId:
+      in: path
+      name: token_id
+      required: true
+      schema: { type: string, format: uuid }
+    WebhookId:
+      in: path
+      name: webhook_id
+      required: true
+      schema: { type: string, format: uuid }
+      schema: { type: string }
+    IfMatch:
+      in: header
+      name: if-match
+      required: true
+      schema: { type: string, example: v1 }
+    ItemId:
+      in: path
+      name: item_id
+      required: true
+      schema: { type: string, format: uuid }
+  schemas:
+    ProblemDetails:
+      type: object
+      required: [title, status, code, detail]
+      properties:
+        title: { type: string }
+        status: { type: integer }
+        code: { type: string }
+        detail: { type: string }
+        retryable: { type: boolean }

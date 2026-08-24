@@ -1,0 +1,58 @@
+services:
+  api:
+    image: ${PERSONAL_AFFAIRS_API_IMAGE:-personal-affairs-api:latest}
+    env_file:
+      - path: ${PERSONAL_AFFAIRS_RUNTIME_ENV_FILE:?set PERSONAL_AFFAIRS_RUNTIME_ENV_FILE}
+        required: true
+    restart: unless-stopped
+    command:
+      - uvicorn
+      - personal_affairs.api.app:app
+      - --host
+      - 127.0.0.1
+      - --port
+      - "18098"
+    network_mode: host
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:18098/api/v1/health', timeout=2)\""]
+      interval: 30s
+      timeout: 3s
+      retries: 5
+
+  worker:
+    image: ${PERSONAL_AFFAIRS_API_IMAGE:-personal-affairs-api:latest}
+    env_file:
+      - path: ${PERSONAL_AFFAIRS_RUNTIME_ENV_FILE:?set PERSONAL_AFFAIRS_RUNTIME_ENV_FILE}
+        required: true
+    restart: unless-stopped
+    command: ["personal-affairs-worker"]
+    network_mode: host
+
+  webhook:
+    image: ${PERSONAL_AFFAIRS_API_IMAGE:-personal-affairs-api:latest}
+    env_file:
+      - path: ${PERSONAL_AFFAIRS_RUNTIME_ENV_FILE:?set PERSONAL_AFFAIRS_RUNTIME_ENV_FILE}
+        required: true
+    restart: unless-stopped
+    command: ["personal-affairs-webhook-worker"]
+    network_mode: host
+
+  mcp:
+    image: ${PERSONAL_AFFAIRS_API_IMAGE:-personal-affairs-api:latest}
+    env_file:
+      - path: ${PERSONAL_AFFAIRS_RUNTIME_ENV_FILE:?set PERSONAL_AFFAIRS_RUNTIME_ENV_FILE}
+        required: true
+    restart: unless-stopped
+    command: ["personal-affairs-mcp"]
+    network_mode: host
+    environment:
+      - PERSONAL_AFFAIRS_MCP_TRANSPORT=streamable-http
+      - PERSONAL_AFFAIRS_MCP_HOST=127.0.0.1
+      - PERSONAL_AFFAIRS_MCP_PORT=18099
+
+  web:
+    image: ${PERSONAL_AFFAIRS_WEB_IMAGE:-personal-affairs-web:latest}
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      - api

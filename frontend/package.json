@@ -1,0 +1,29 @@
+{
+  "name": "personal-affairs-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 18110",
+    "build": "tsc -b && vite build",
+    "lint": "tsc -b",
+    "test": "tsc -b",
+    "e2e": "echo 'E2E runs in the deployment candidate gate'"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "5.59.16",
+    "lucide-react": "0.468.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
+    "@vitejs/plugin-react": "4.3.3",
+    "typescript": "5.6.3",
+    "vite": "5.4.11"
+  },
+  "overrides": {
+    "rollup": "4.24.0"
+  }
+}

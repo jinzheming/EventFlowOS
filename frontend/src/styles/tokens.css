@@ -1,0 +1,85 @@
+/* ============================================================
+   事务台设计令牌（P3 Phase 1）
+   权威定义见 docs/aegis/plans/2026-08-19-ui-design-refresh.md 第 2 节 v2
+   规则：组件只引用令牌，不写裸 hex；暗色 = 令牌全量反演。
+   ============================================================ */
+
+:root {
+  /* 中性色阶（结构） */
+  --bg: #f7f8fa;
+  --surface: #ffffff;
+  --surface-subtle: #f1f4f8;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --text: #0f172a;
+  --text-secondary: #475569;
+  --text-faint: #94a3b8;
+
+  /* 主色：藏青蓝（无绿色系） */
+  --accent: #1d4ed8;
+  --accent-hover: #1e40af;
+  --accent-active: #1e3a8a;
+  --accent-soft: #e8eefc;
+  --accent-text: #1d4ed8;
+  --on-accent: #ffffff;
+
+  /* 语义色（实心 + 软底） */
+  --warning: #b45309;
+  --warning-soft: #fdf3e3;
+  --danger: #b42318;
+  --danger-soft: #fdecea;
+  --info: #6d28d9;
+  --info-soft: #f1ecfd;
+
+  /* 圆角 */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-full: 999px;
+
+  /* 阴影两级 */
+  --shadow-1: 0 4px 16px rgb(15 23 42 / 0.08);
+  --shadow-2: 0 12px 40px rgb(15 23 42 / 0.14);
+
+  /* 动效 */
+  --dur-fast: 150ms;
+  --dur-med: 200ms;
+  --ease: cubic-bezier(0.2, 0, 0.2, 1);
+
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1220;
+    --surface: #141b2c;
+    --surface-subtle: #1c2437;
+    --border: #2a3550;
+    --border-strong: #3b4a6b;
+    --text: #e6ebf5;
+    --text-secondary: #a5b1c6;
+    --text-faint: #6b7a94;
+
+    --accent: #5b8def;
+    --accent-hover: #7aa4f4;
+    --accent-active: #93b5f7;
+    --accent-soft: #1d2c4e;
+    --accent-text: #7aa4f4;
+    --on-accent: #ffffff;
+
+    --warning: #d9973b;
+    --warning-soft: #3a2c14;
+    --danger: #e0604f;
+    --danger-soft: #3d1a15;
+    --info: #a78bfa;
+    --info-soft: #2b2145;
+
+    --shadow-1: 0 4px 16px rgb(0 0 0 / 0.35);
+    --shadow-2: 0 12px 40px rgb(0 0 0 / 0.5);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur-med: 0ms;
+  }
+}
