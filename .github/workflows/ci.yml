@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+      - name: Install backend dependencies
+        working-directory: backend
+        run: uv sync --all-extras --locked
+      - name: Export audit requirements
+        working-directory: backend
+        run: |
+          uv export --all-extras --format requirements-txt --no-hashes --output-file /tmp/personal-affairs-requirements.txt
+          grep -v '^-e .' /tmp/personal-affairs-requirements.txt > /tmp/personal-affairs-requirements-audit.txt
+      - name: Audit Python dependencies
+        run: uvx pip-audit -r /tmp/personal-affairs-requirements-audit.txt --no-deps --disable-pip --progress-spinner off --timeout 60
+      - name: Test backend
+        working-directory: backend
+        run: uv run pytest -q
+      - name: Lint backend
+        working-directory: backend
+        run: uv run ruff check src tests
+      - name: Type check backend
+        working-directory: backend
+        run: uv run pyright
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+      - name: Audit frontend dependencies
+        run: npm audit --prefix frontend --audit-level=moderate
+      - name: Lint frontend
+        run: npm run lint --prefix frontend
+      - name: Build frontend
+        run: npm run build --prefix frontend
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate dev compose
+        run: docker compose -f infra/docker-compose.dev.yml config
+      - name: Validate server compose
+        env:
+          PERSONAL_AFFAIRS_RUNTIME_ENV_FILE: ${{ github.workspace }}/infra/.env.example
+        run: docker compose -f infra/docker-compose.server.yml config
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build API image
+        run: docker build --build-arg PIP_INDEX_URL=https://pypi.org/simple --build-arg UV_INDEX_URL=https://pypi.org/simple -f infra/Dockerfile.api .
+      - name: Build web image
+        run: docker build --build-arg NPM_REGISTRY=https://registry.npmjs.org -f infra/Dockerfile.web .
+
+  clean-tree:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check whitespace
+        run: git diff --check
+      - name: Ensure generated artifacts are not tracked
+        run: |
+          tracked=$(git ls-files | grep -E '(^|/)(node_modules|dist|\.venv|__pycache__|\.pytest_cache|\.ruff_cache|\.mypy_cache)(/|$)' || true)
+          if [ -n "$tracked" ]; then
+            echo "Generated artifacts must not be tracked:"
+            echo "$tracked"
+            exit 1
+          fi
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
