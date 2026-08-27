@@ -14,6 +14,13 @@ class Settings(BaseSettings):
     database_max_size: int = 5
     session_cookie_name: str = "pa_session"
     csrf_header_name: str = "x-csrf-token"
+    api_docs_enabled: bool | None = None
+    allowed_hosts: str = ""
+    rate_limit_enabled: bool = True
+    rate_limit_window_seconds: int = 60
+    login_rate_limit_attempts: int = 10
+    token_create_rate_limit_attempts: int = 20
+    webhook_create_rate_limit_attempts: int = 20
     default_timezone: str = "Asia/Shanghai"
     bootstrap_username: str | None = None
     bootstrap_password: str | None = None
@@ -32,6 +39,8 @@ class Settings(BaseSettings):
     webhook_lease_seconds: int = 60
     webhook_max_attempts: int = 6
     webhook_timeout_seconds: float = 8.0
+    webhook_allow_private_urls: bool = False
+    webhook_allowed_hosts: str = ""
     feishu_im_enabled: bool = False
     feishu_im_verification_token: str | None = Field(default=None, repr=False)
     feishu_im_encrypt_key: str | None = Field(default=None, repr=False)

@@ -12,6 +12,7 @@ from personal_affairs.api.dependencies import (
     settings,
 )
 from personal_affairs.api.problem_details import not_found
+from personal_affairs.api.rate_limit import client_host, enforce_rate_limit, rate_limit_key_part
 from personal_affairs.api.schemas import (
     LoginRequest,
     SessionOut,
@@ -29,13 +30,20 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/login", response_model=SessionOut)
 def login(
-    request: LoginRequest,
+    payload: LoginRequest,
+    http_request: Request,
     response: Response,
     conn: Connection = Depends(db_conn),
     cfg: Settings = Depends(settings),
 ) -> SessionOut:
+    enforce_rate_limit(
+        cfg,
+        "login",
+        f"{client_host(http_request)}:{rate_limit_key_part(payload.username)}",
+        cfg.login_rate_limit_attempts,
+    )
     users = UsersRepository(conn)
-    user = users.verify_password(request.username, request.password)
+    user = users.verify_password(payload.username, payload.password)
     if not user:
         raise DomainError(ErrorCode.BAD_CREDENTIALS, "Username or password is invalid.", 401)
     session = users.create_session(user["id"])
@@ -76,7 +84,12 @@ def logout(
     token = request.cookies.get(cfg.session_cookie_name)
     if token:
         UsersRepository(conn).delete_session(token)
-    response.delete_cookie(cfg.session_cookie_name)
+    response.delete_cookie(
+        cfg.session_cookie_name,
+        httponly=True,
+        secure=cfg.app_env == "production",
+        samesite="lax",
+    )
 
 
 @router.post("/tokens", response_model=TokenCreated, dependencies=[Depends(require_csrf)])
@@ -84,7 +97,14 @@ def create_token(
     request: TokenCreate,
     user_id: UUID = Depends(current_user_id),
     conn: Connection = Depends(db_conn),
+    cfg: Settings = Depends(settings),
 ) -> TokenCreated:
+    enforce_rate_limit(
+        cfg,
+        "token_create",
+        rate_limit_key_part(user_id),
+        cfg.token_create_rate_limit_attempts,
+    )
     expires_at = (
         datetime.now(UTC) + timedelta(days=request.expires_in_days)
         if request.expires_in_days is not None

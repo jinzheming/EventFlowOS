@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from personal_affairs.config import get_settings
@@ -116,3 +117,51 @@ def test_health_and_openapi_do_not_require_database(monkeypatch) -> None:
         proposal_out = schema["components"]["schemas"]["AgentProposalOut"]["properties"]
         assert {"state", "risk_tier", "proposed_payload", "applied_item_id"} <= set(proposal_out)
         assert "post" in schema["paths"]["/api/v1/integrations/feishu/im/events"]
+
+
+def test_api_docs_disabled_by_default_in_production(monkeypatch) -> None:
+    monkeypatch.setenv("PERSONAL_AFFAIRS_APP_ENV", "production")
+    monkeypatch.setenv("PERSONAL_AFFAIRS_ALLOWED_HOSTS", "tasks.example.com")
+    monkeypatch.delenv("PERSONAL_AFFAIRS_API_DOCS_ENABLED", raising=False)
+    get_settings.cache_clear()
+    from personal_affairs.api.app import create_app
+
+    app = create_app()
+    with TestClient(app, base_url="http://tasks.example.com") as client:
+        assert client.get("/api/docs").status_code == 404
+        assert client.get("/api/v1/openapi.json").status_code == 404
+
+
+def test_api_docs_can_be_enabled_explicitly(monkeypatch) -> None:
+    monkeypatch.setenv("PERSONAL_AFFAIRS_APP_ENV", "production")
+    monkeypatch.setenv("PERSONAL_AFFAIRS_ALLOWED_HOSTS", "tasks.example.com")
+    monkeypatch.setenv("PERSONAL_AFFAIRS_API_DOCS_ENABLED", "true")
+    get_settings.cache_clear()
+    from personal_affairs.api.app import create_app
+
+    app = create_app()
+    with TestClient(app, base_url="http://tasks.example.com") as client:
+        assert client.get("/api/v1/openapi.json").status_code == 200
+
+
+def test_production_requires_allowed_hosts(monkeypatch) -> None:
+    monkeypatch.setenv("PERSONAL_AFFAIRS_APP_ENV", "production")
+    monkeypatch.delenv("PERSONAL_AFFAIRS_ALLOWED_HOSTS", raising=False)
+    get_settings.cache_clear()
+    from personal_affairs.api.app import create_app
+
+    with pytest.raises(RuntimeError, match="PERSONAL_AFFAIRS_ALLOWED_HOSTS"):
+        create_app()
+
+
+def test_allowed_hosts_rejects_untrusted_host(monkeypatch) -> None:
+    monkeypatch.setenv("PERSONAL_AFFAIRS_APP_ENV", "unit")
+    monkeypatch.setenv("PERSONAL_AFFAIRS_ALLOWED_HOSTS", "tasks.example.com")
+    get_settings.cache_clear()
+    from personal_affairs.api.app import create_app
+
+    app = create_app()
+    with TestClient(app, base_url="http://tasks.example.com") as client:
+        assert client.get("/api/v1/health").status_code == 200
+    with TestClient(app, base_url="http://evil.example.com") as client:
+        assert client.get("/api/v1/health").status_code == 400

@@ -14,7 +14,7 @@ services:
       - "18098"
     network_mode: host
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:18098/api/v1/health', timeout=2)\""]
+      test: ["CMD-SHELL", "python -c \"import os, urllib.request; host=(os.environ.get('PERSONAL_AFFAIRS_ALLOWED_HOSTS') or '127.0.0.1').split(',')[0].strip(); req=urllib.request.Request('http://127.0.0.1:18098/api/v1/health', headers={'Host': host}); urllib.request.urlopen(req, timeout=2)\""]
       interval: 30s
       timeout: 3s
       retries: 5

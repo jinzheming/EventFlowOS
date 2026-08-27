@@ -14,6 +14,7 @@ from uuid import UUID
 
 import httpx
 
+from personal_affairs.application.webhook_urls import WebhookUrlError, validate_webhook_url
 from personal_affairs.config import get_settings
 from personal_affairs.domain.reminder_state import next_retry_at
 from personal_affairs.storage.database import connection
@@ -41,6 +42,15 @@ def _event_body(event: dict) -> bytes:
 
 
 async def _deliver(sub: dict, event: dict, cfg) -> tuple[bool, str, str]:
+    try:
+        url = validate_webhook_url(
+            sub["url"],
+            allow_private=cfg.webhook_allow_private_urls,
+            allowed_hosts=cfg.webhook_allowed_hosts,
+        )
+    except WebhookUrlError as exc:
+        return False, "INVALID_WEBHOOK_URL", str(exc)[:200]
+
     body = _event_body(event)
     headers = {
         "Content-Type": "application/json",
@@ -50,8 +60,8 @@ async def _deliver(sub: dict, event: dict, cfg) -> tuple[bool, str, str]:
         "X-PA-Signature": sign_payload(sub["secret"], body),
     }
     try:
-        async with httpx.AsyncClient(timeout=cfg.webhook_timeout_seconds) as client:
-            response = await client.post(sub["url"], content=body, headers=headers)
+        async with httpx.AsyncClient(timeout=cfg.webhook_timeout_seconds, follow_redirects=False) as client:
+            response = await client.post(url, content=body, headers=headers)
         if 200 <= response.status_code < 300:
             return True, "OK", ""
         return False, f"HTTP_{response.status_code}", (response.text or "")[:200]

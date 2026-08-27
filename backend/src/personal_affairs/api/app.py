@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from personal_affairs import __version__
 from personal_affairs.api.middleware import RequestIdMiddleware
@@ -27,11 +28,32 @@ from personal_affairs.api.routes import (
     tags,
     webhooks,
 )
-from personal_affairs.config import get_settings
+from personal_affairs.config import Settings, get_settings
 from personal_affairs.domain.errors import DomainError
 from personal_affairs.storage.database import close_pool, connection
 from personal_affairs.storage.migrations import run_migrations
 from personal_affairs.storage.repositories.users import UsersRepository
+
+
+def _csv_values(value: str) -> list[str]:
+    return [part.strip() for part in value.split(",") if part.strip()]
+
+
+def _is_production(cfg: Settings) -> bool:
+    return cfg.app_env.lower() == "production"
+
+
+def _docs_enabled(cfg: Settings) -> bool:
+    return cfg.api_docs_enabled if cfg.api_docs_enabled is not None else not _is_production(cfg)
+
+
+def _allowed_hosts(cfg: Settings) -> list[str]:
+    allowed_hosts = _csv_values(cfg.allowed_hosts)
+    if _is_production(cfg) and not allowed_hosts:
+        raise RuntimeError(
+            "PERSONAL_AFFAIRS_ALLOWED_HOSTS must be set when PERSONAL_AFFAIRS_APP_ENV=production."
+        )
+    return allowed_hosts
 
 
 @asynccontextmanager
@@ -50,13 +72,19 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 
 def create_app() -> FastAPI:
+    cfg = get_settings()
+    docs_enabled = _docs_enabled(cfg)
     app = FastAPI(
         title="Personal Affairs API",
         version=__version__,
-        openapi_url="/api/v1/openapi.json",
-        docs_url="/api/docs",
+        openapi_url="/api/v1/openapi.json" if docs_enabled else None,
+        docs_url="/api/docs" if docs_enabled else None,
+        redoc_url=None,
         lifespan=lifespan,
     )
+    allowed_hosts = _allowed_hosts(cfg)
+    if allowed_hosts:
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
     app.add_middleware(RequestIdMiddleware)
     app.add_exception_handler(DomainError, domain_error_handler)
     app.add_exception_handler(Exception, unhandled_error_handler)
