@@ -26,5 +26,6 @@ frontend/*.tsbuildinfo
 
 # OS/editor
 .DS_Store
+._*
 .idea/
 .vscode/

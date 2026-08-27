@@ -1,0 +1,41 @@
+name: Feature request
+description: Propose a scoped improvement for EventFlowOS.
+title: "feat: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow or constraint should this improve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the smallest useful change.
+    validations:
+      required: true
+  - type: dropdown
+    id: boundary
+    attributes:
+      label: Deployment boundary
+      options:
+        - Single-user self-hosted
+        - Multi-user self-hosted
+        - Multi-tenant SaaS
+        - Unsure
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: security
+    attributes:
+      label: Security-sensitive areas
+      options:
+        - label: This touches authentication, authorization, CSRF, webhooks, personal access tokens, deployment, or runtime secrets.
+          required: false
