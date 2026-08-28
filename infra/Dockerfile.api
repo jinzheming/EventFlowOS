@@ -19,10 +19,11 @@ RUN pip install --no-cache-dir --timeout 120 uv==0.9.28
 
 COPY backend/pyproject.toml /app/pyproject.toml
 COPY backend/uv.lock /app/uv.lock
-RUN uv sync --frozen --no-dev --no-install-project
+RUN uv export --frozen --no-dev --no-hashes --no-emit-project -o /tmp/requirements.txt \
+    && pip install --no-cache-dir --timeout 120 -r /tmp/requirements.txt
 COPY backend/src /app/src
 COPY backend/migrations /app/migrations
-RUN uv sync --frozen --no-dev
+RUN pip install --no-cache-dir --timeout 120 --no-deps .
 
 # Scrub proxy from the runtime image: api/worker must not route notifications
 # or webhook calls through the build-time proxy.
