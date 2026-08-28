@@ -13,7 +13,7 @@ def test_health_and_openapi_do_not_require_database(monkeypatch) -> None:
     with TestClient(app) as client:
         assert client.get("/api/v1/health").json() == {"status": "ok"}
         schema = client.get("/api/v1/openapi.json").json()
-        assert schema["info"]["title"] == "Personal Affairs API"
+        assert schema["info"]["title"] == "EventFlowOS API"
         assert "/api/v1/items" in schema["paths"]
         reminder_path = schema["paths"]["/api/v1/items/{item_id}/reminder"]
         assert "get" in reminder_path

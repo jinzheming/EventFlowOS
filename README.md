@@ -24,7 +24,7 @@ EventFlowOS is an early-preview, self-hosted, single-user application. It is sui
 - `frontend/` - React/Vite web client.
 - `infra/` - Dockerfiles, compose files, Nginx config, and guarded server deploy script.
 - `openapi/` - OpenAPI contract snapshot.
-- `docs/` - Aegis design and implementation notes.
+- `docs/` - EventFlowOS design, deployment, and implementation notes.
 
 See `docs/deployment.md` for the production boundary, security checklist, and backup/restore runbook.
 See `docs/open-source-readiness.md` for the current release-candidate readiness notes and residual risks.

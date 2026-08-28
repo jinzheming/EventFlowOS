@@ -91,7 +91,7 @@ export function PersonalItemDrawer({
       <form onSubmit={submit}>
         <header className="panel-header">
           <div>
-            <p className="eyebrow">Personal Item</p>
+            <p className="eyebrow">个人事项</p>
             <h2 id="personal-drawer-title">个人事项</h2>
           </div>
           <button className="icon-button" type="button" onClick={onClose} title="关闭">
