@@ -1,7 +1,7 @@
 {
-  "name": "Personal Affairs 事务台",
-  "short_name": "事务台",
-  "description": "个人事务与日程管理",
+  "name": "EventFlowOS",
+  "short_name": "EventFlowOS",
+  "description": "Self-hosted personal OS for events, tasks, reminders, and agent workflows.",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",
