@@ -52,6 +52,10 @@ export function QuickAddDialog({
   const create = useMutation({
     mutationFn: async (mode: 'close' | 'continue') => {
       const payload = scope === 'work' ? buildWorkPayload(previewDraft as ReturnType<typeof emptyWorkDraft>) : buildPersonalPayload(previewDraft);
+      payload.intake_text = input.trim();
+      payload.intake_scope_source = resolution.source;
+      payload.intake_origin = 'web';
+      payload.intake_normalization = 'none';
       if (toInbox) payload.status = 'inbox';
       if (parsed.waiting_on && parsed.person_role) {
         const people = directory.data ?? (await api.people(true));

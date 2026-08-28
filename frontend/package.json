@@ -7,7 +7,7 @@
     "dev": "vite --host 127.0.0.1 --port 18110",
     "build": "tsc -b && vite build",
     "lint": "tsc -b",
-    "test": "tsc -b",
+    "test": "tsc -b && node --import ./register-test-hooks.mjs --test quickadd.test.mjs",
     "e2e": "echo 'E2E runs in the deployment candidate gate'"
   },
   "dependencies": {

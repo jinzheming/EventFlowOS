@@ -12,6 +12,7 @@ from personal_affairs.api.dependencies import (
 )
 from personal_affairs.api.problem_details import not_found
 from personal_affairs.api.schemas import ItemCreate, ItemOut, ItemPatch, ReminderOut, ReminderPut
+from personal_affairs.application.item_intake_normalizer import ItemIntakeNormalizer
 from personal_affairs.application.item_service import ItemService
 from personal_affairs.application.reminder_service import ReminderService
 from personal_affairs.config import Settings
@@ -48,8 +49,9 @@ def create_item(
     response: Response,
     user_id: UUID = Depends(current_user_id),
     conn: Connection = Depends(db_conn),
+    cfg: Settings = Depends(settings),
 ) -> dict:
-    service = ItemService(ItemsRepository(conn), ActivityRepository(conn))
+    service = ItemService(ItemsRepository(conn), ActivityRepository(conn), ItemIntakeNormalizer(cfg))
     item, created = service.create(user_id, request)
     _etag(response, item)
     response.status_code = 201 if created else 200

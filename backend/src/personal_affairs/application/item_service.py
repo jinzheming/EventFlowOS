@@ -3,6 +3,7 @@ from uuid import UUID
 
 from personal_affairs.api.schemas import ItemCreate, ItemPatch
 from personal_affairs.application.idempotency import create_request_hash
+from personal_affairs.application.item_intake_normalizer import ItemIntakeNormalizer
 from personal_affairs.domain.enums import ItemScope, ItemStatus
 from personal_affairs.domain.errors import ErrorCode, conflict_error
 from personal_affairs.domain.models import ItemSchedule
@@ -20,6 +21,7 @@ from personal_affairs.storage.repositories.reminders import RemindersRepository
 from personal_affairs.storage.repositories.tags import TagsRepository
 
 TERMINAL_STATUSES = {ItemStatus.DONE.value, ItemStatus.CANCELLED.value, "done", "cancelled"}
+INTAKE_META_KEYS = {"intake_text", "intake_scope_source", "intake_origin", "intake_normalization"}
 
 
 def _schedule_from_payload(payload: dict) -> ItemSchedule:
@@ -64,10 +66,15 @@ def _apply_people_status(payload: dict[str, Any], people: list[dict[str, Any]] |
         payload["status"] = ItemStatus.PLANNED.value
 
 
+def _should_normalize_intake(payload: dict[str, Any]) -> bool:
+    return payload.get("intake_normalization") == "llm"
+
+
 class ItemService:
-    def __init__(self, items: ItemsRepository, activity: ActivityRepository):
+    def __init__(self, items: ItemsRepository, activity: ActivityRepository, normalizer: ItemIntakeNormalizer | None = None):
         self.items = items
         self.activity = activity
+        self.normalizer = normalizer
 
     def create(
         self,
@@ -78,14 +85,9 @@ class ItemService:
         source_context: dict[str, Any] | None = None,
         execution_output: dict[str, Any] | None = None,
     ) -> tuple[dict, bool]:
-        payload = request.model_dump(exclude_none=True)
-        client_request_id = payload.pop("client_request_id", None)
-        request_hash = create_request_hash(payload)  # 包含 tag_ids 和 people
-        tag_ids = payload.pop("tag_ids", None)
-        people = _people_payload(payload.pop("people", None))
-        _apply_people_status(payload, people)
-        validate_project_link(ItemScope(payload["scope"]), payload.get("project_id"))
-        validate_schedule(_schedule_from_payload(payload))
+        raw_payload = request.model_dump(exclude_none=True)
+        client_request_id = raw_payload.pop("client_request_id", None)
+        request_hash = create_request_hash(raw_payload)  # 包含 tag_ids、people 和 intake metadata
         if client_request_id:
             state, snapshot = self.items.replay_create_request(
                 user_id, "item", client_request_id, request_hash
@@ -97,12 +99,25 @@ class ItemService:
                 )
             if state == "replay" and snapshot:
                 return snapshot, False
+        payload = dict(raw_payload)
+        normalization: dict[str, Any] | None = None
+        if self.normalizer and _should_normalize_intake(payload):
+            payload, normalization = self.normalizer.normalize(user_id, self.items.conn, payload)
+        for key in INTAKE_META_KEYS:
+            payload.pop(key, None)
+        tag_ids = payload.pop("tag_ids", None)
+        people = _people_payload(payload.pop("people", None))
+        _apply_people_status(payload, people)
+        validate_project_link(ItemScope(payload["scope"]), payload.get("project_id"))
+        validate_schedule(_schedule_from_payload(payload))
         payload["created_by_actor"] = created_by_actor
         payload["updated_by_actor"] = created_by_actor
         if source_context is not None:
             payload["source_context"] = source_context
         if execution_output is not None:
             payload["execution_output"] = execution_output
+        if normalization:
+            payload["source_context"] = {**(payload.get("source_context") or {}), "intake_normalization": normalization}
         item = self.items.create_item(user_id, payload)
         if people is not None:
             PeopleRepository(self.items.conn).replace_item_people(user_id, item["id"], people)
@@ -112,7 +127,10 @@ class ItemService:
             item = self.items.get_item(user_id, item["id"]) or item
         if client_request_id:
             self.items.record_create_request(user_id, client_request_id, request_hash, "item", item["id"], item)
-        self.activity.record(user_id, "item", item["id"], "created", {"scope": payload["scope"]})
+        activity_payload: dict[str, Any] = {"scope": payload["scope"]}
+        if normalization:
+            activity_payload["intake_normalization"] = normalization
+        self.activity.record(user_id, "item", item["id"], "created", activity_payload)
         EventOutboxRepository(self.items.conn).record(
             user_id, "item.created", "item", item["id"], {"scope": payload["scope"]}
         )

@@ -33,6 +33,7 @@ from personal_affairs.application.agent_context_service import (
 )
 from personal_affairs.application.agent_proposal_service import AgentProposalService
 from personal_affairs.application.calendar_query_service import CalendarQueryService
+from personal_affairs.application.item_intake_normalizer import ItemIntakeNormalizer
 from personal_affairs.application.item_service import ItemService
 from personal_affairs.application.meeting_invite_parser import parse_tencent_meeting_invite
 from personal_affairs.application.people_service import PeopleService
@@ -160,6 +161,8 @@ async def pa_get_item(item_id: str) -> dict | None:
 async def pa_create_item(
     title: str,
     scope: str,
+    intake_text: str | None = None,
+    intake_normalization: str = "llm",
     notes: str | None = None,
     status: str | None = None,
     priority: str | None = None,
@@ -180,10 +183,15 @@ async def pa_create_item(
     people: list[dict] | None = None,
     client_request_id: str | None = None,
 ) -> dict:
-    """Create an item (idempotent via client_request_id). scope: work|personal."""
+    """Create an item (idempotent via client_request_id). scope: work|personal. Agent calls use LLM intake by default."""
+    source_text = intake_text if intake_text is not None else title
     fields = {
         "title": title,
         "scope": ItemScope(scope),
+        "intake_text": source_text,
+        "intake_scope_source": "explicit",
+        "intake_origin": "agent",
+        "intake_normalization": intake_normalization,
         "status": ItemStatus(status) if status else None,
         "priority": priority,
         "project_id": UUID(project_id) if project_id else None,
@@ -205,7 +213,7 @@ async def pa_create_item(
     }
     request = ItemCreate(**{k: v for k, v in fields.items() if v is not None})
     item, _created = await _authed(
-        lambda conn, uid: ItemService(ItemsRepository(conn), ActivityRepository(conn)).create(uid, request)
+        lambda conn, uid: ItemService(ItemsRepository(conn), ActivityRepository(conn), ItemIntakeNormalizer(get_settings())).create(uid, request)
     )
     return item
 
@@ -558,6 +566,8 @@ async def pa_list_calendar(
 async def pa_create_calendar_event(
     title: str,
     scope: str,
+    intake_text: str | None = None,
+    intake_normalization: str = "llm",
     start_at: str | None = None,
     due_at: str | None = None,
     due_date: str | None = None,
@@ -575,9 +585,14 @@ async def pa_create_calendar_event(
     all_day=true with due_date/start_date (ISO dates). Optionally attach a
     reminder (timing: at_start|before_start|before_due).
     """
+    source_text = intake_text if intake_text is not None else title
     fields = {
         "title": title,
         "scope": ItemScope(scope),
+        "intake_text": source_text,
+        "intake_scope_source": "explicit",
+        "intake_origin": "agent",
+        "intake_normalization": intake_normalization,
         "all_day": all_day,
         "start_at": _parse_datetime(start_at),
         "due_at": _parse_datetime(due_at),
@@ -591,7 +606,7 @@ async def pa_create_calendar_event(
 
     def _run(conn, uid):
         items = ItemsRepository(conn)
-        item, _created = ItemService(items, ActivityRepository(conn)).create(uid, request)
+        item, _created = ItemService(items, ActivityRepository(conn), ItemIntakeNormalizer(get_settings())).create(uid, request)
         if reminder_timing:
             ReminderService(RemindersRepository(conn), items, get_settings()).upsert(
                 uid,

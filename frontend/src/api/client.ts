@@ -8,6 +8,8 @@ export type AgentProposalSourceType = 'agent' | 'feishu_im' | 'tencent_meeting';
 export type AgentProposalRiskTier = 'l1' | 'l2' | 'l3';
 export type AgentProposalState = 'pending' | 'approved' | 'edited_approved' | 'rejected' | 'ignored' | 'expired';
 export type AgentProposalAction = 'create_item' | 'patch_item';
+export type IntakeOrigin = 'web' | 'agent' | 'api';
+export type IntakeNormalization = 'none' | 'llm';
 
 export interface Session {
   user_id: string;
@@ -139,7 +141,14 @@ export interface Item {
   people: ItemPerson[];
 }
 
-export type ItemPayload = Omit<Partial<Item>, 'people'> & { tag_ids?: string[] | null; people?: Array<{ person_id: string; role: PersonRole } | ItemPerson> | null };
+export type ItemPayload = Omit<Partial<Item>, 'people'> & {
+  tag_ids?: string[] | null;
+  people?: Array<{ person_id: string; role: PersonRole } | ItemPerson> | null;
+  intake_text?: string | null;
+  intake_scope_source?: string | null;
+  intake_origin?: IntakeOrigin | null;
+  intake_normalization?: IntakeNormalization | null;
+};
 
 export interface AgentProposal {
   id: string;

@@ -146,6 +146,10 @@ class ItemBase(BaseModel):
 
 class ItemCreate(ItemBase):
     client_request_id: str | None = Field(default=None, max_length=120)
+    intake_text: str | None = None
+    intake_scope_source: str | None = None
+    intake_origin: Literal["web", "agent", "api"] | None = None
+    intake_normalization: Literal["none", "llm"] | None = None
 
 
 class ItemPatch(BaseModel):
