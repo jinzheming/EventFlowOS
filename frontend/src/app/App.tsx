@@ -1,4 +1,4 @@
-import {  useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Bell,
   BriefcaseBusiness,
@@ -25,6 +25,7 @@ import { ReminderDiagnosticsDialog } from '../components/ReminderDiagnosticsDial
 import { SearchDialog } from '../components/SearchDialog';
 import { ShortcutHelpDialog } from '../components/ShortcutHelpDialog';
 import { formatScheduleTime, setAppTimezone } from '../lib/dates';
+import { APP_NAME, APP_SHORT_NAME, BRAND_MARK } from '../lib/branding';
 import { snoozeLabel, snoozeWakeAt } from '../lib/reminderPreview';
 import { UndoProvider } from '../hooks/useUndo';
 import { CalendarPage } from '../pages/CalendarPage';
@@ -151,8 +152,8 @@ function Login() {
     <main className="login-view">
       <form className="login-panel" onSubmit={submit}>
         <div>
-          <p className="eyebrow">Personal Affairs</p>
-          <h1>个人事务管理</h1>
+          <p className="eyebrow">{APP_NAME}</p>
+          <h1>EventFlowOS</h1>
         </div>
         <label>
           用户名
@@ -252,8 +253,8 @@ function Shell({
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brand-mark">PA</span>
-          <span>事务台</span>
+          <span className="brand-mark">{BRAND_MARK}</span>
+          <span>{APP_SHORT_NAME}</span>
         </div>
         <button className="primary sidebar-quick-add" type="button" onClick={() => setQuickAddOpen(true)}>
           <Plus size={16} /> <span>新建事项</span> <kbd>⌘K</kbd>

@@ -75,7 +75,7 @@ def create_app() -> FastAPI:
     cfg = get_settings()
     docs_enabled = _docs_enabled(cfg)
     app = FastAPI(
-        title="Personal Affairs API",
+        title="EventFlowOS API",
         version=__version__,
         openapi_url="/api/v1/openapi.json" if docs_enabled else None,
         docs_url="/api/docs" if docs_enabled else None,

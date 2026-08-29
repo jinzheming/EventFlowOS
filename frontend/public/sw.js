@@ -1,4 +1,4 @@
-/* 事务台 Service Worker：静态壳 cache-first，/api 一律 network（不缓存数据）。 */
+/* EventFlowOS Service Worker: static shell cache-first, /api always network (no data cache). */
 const SHELL_CACHE = 'pa-shell-v2';
 const SHELL_ASSETS = ['/manifest.webmanifest', '/icon.svg'];
 
