@@ -19,6 +19,7 @@ def get_pool(settings: Settings | None = None) -> ConnectionPool:
             min_size=resolved.database_min_size,
             max_size=resolved.database_max_size,
             kwargs={"row_factory": dict_row},
+            check=ConnectionPool.check_connection,
             open=True,
         )
     return _pool

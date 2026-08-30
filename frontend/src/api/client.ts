@@ -18,6 +18,26 @@ export interface Session {
   timezone: string;
 }
 
+type ProblemPayload = {
+  code?: string;
+  detail?: string;
+  retryable?: boolean;
+};
+
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+  readonly retryable: boolean;
+
+  constructor(status: number, problem: ProblemPayload, fallback: string) {
+    super(problem.detail || fallback);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = problem.code ?? null;
+    this.retryable = problem.retryable ?? false;
+  }
+}
+
 export interface PatToken {
   id: string;
   name: string;
@@ -349,21 +369,50 @@ export interface Preferences {
   ics_token: string | null;
 }
 
-async function request<T>(path: string, init: RequestInit = {}, csrf?: string): Promise<T> {
+async function executeRequest<T>(path: string, init: RequestInit, csrf?: string): Promise<T> {
+  const headers = new Headers(init.headers);
+  headers.set('content-type', 'application/json');
+  if (csrf) headers.set('x-csrf-token', csrf);
   const response = await fetch(`/api/v1${path}`, {
     ...init,
-    headers: {
-      'content-type': 'application/json',
-      ...(csrf ? { 'x-csrf-token': csrf } : {}),
-      ...(init.headers ?? {}),
-    },
+    headers,
   });
   if (!response.ok) {
-    const problem = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new Error(problem.detail || response.statusText);
+    const problem = (await response.json().catch(() => ({}))) as ProblemPayload;
+    throw new ApiError(response.status, problem, response.statusText);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
+}
+
+async function request<T>(path: string, init: RequestInit = {}, csrf?: string): Promise<T> {
+  try {
+    return await executeRequest<T>(path, init, csrf);
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 403 || error.code !== 'CSRF_REQUIRED' || !csrf) {
+      if (error instanceof ApiError && init.method && init.method !== 'GET' && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('pa-api-error', { detail: error }));
+      }
+      throw error;
+    }
+
+    const sessionResponse = await fetch('/api/v1/auth/session');
+    if (!sessionResponse.ok) {
+      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('pa-api-error', { detail: error }));
+      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('pa-auth-expired'));
+      throw error;
+    }
+    const session = (await sessionResponse.json()) as Session;
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('pa-session-refreshed', { detail: session }));
+    try {
+      return await executeRequest<T>(path, init, session.csrf_token);
+    } catch (retryError) {
+      if (retryError instanceof ApiError && init.method && init.method !== 'GET' && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('pa-api-error', { detail: retryError }));
+      }
+      throw retryError;
+    }
+  }
 }
 
 export const api = {
