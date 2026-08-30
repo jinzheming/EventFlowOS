@@ -10,9 +10,12 @@ fi
 TASK_COMPOSE_FILE="infra/docker-compose.server.yml"
 TASK_ENV_FILE="${PERSONAL_AFFAIRS_RUNTIME_ENV_FILE:?set PERSONAL_AFFAIRS_RUNTIME_ENV_FILE}"
 TASK_RELEASE_TAG="${PERSONAL_AFFAIRS_RELEASE_TAG:-$(date -u +%Y%m%d%H%M%S)}"
+TASK_COMPOSE_PROJECT="${PERSONAL_AFFAIRS_COMPOSE_PROJECT:-personal-affairs}"
 TASK_PYTHON_IMAGE="${PERSONAL_AFFAIRS_PYTHON_IMAGE:-public.ecr.aws/docker/library/python:3.12-slim}"
 TASK_NODE_IMAGE="${PERSONAL_AFFAIRS_NODE_IMAGE:-node:20-bookworm-slim}"
 TASK_NGINX_IMAGE="${PERSONAL_AFFAIRS_NGINX_IMAGE:-nginx:1.27-alpine}"
+TASK_NGINX_CONF="${PERSONAL_AFFAIRS_NGINX_CONF:-infra/nginx.server.conf}"
+TASK_WEB_HEALTH_URL="${PERSONAL_AFFAIRS_WEB_HEALTH_URL:-http://127.0.0.1:18110/}"
 TASK_PIP_INDEX_URL="${PERSONAL_AFFAIRS_PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}"
 TASK_UV_INDEX_URL="${PERSONAL_AFFAIRS_UV_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}"
 TASK_NPM_REGISTRY="${PERSONAL_AFFAIRS_NPM_REGISTRY:-https://registry.npmmirror.com}"
@@ -31,12 +34,23 @@ if [[ ! -r "$TASK_ENV_FILE" ]]; then
   echo "Runtime env file is missing or unreadable: $TASK_ENV_FILE"
   exit 1
 fi
+if [[ ! -r "$TASK_NGINX_CONF" ]]; then
+  echo "Nginx config is missing or unreadable: $TASK_NGINX_CONF"
+  exit 1
+fi
+
+TASK_NGINX_BUILD_CONF="$TASK_NGINX_CONF"
+if [[ "$TASK_NGINX_CONF" = /* ]]; then
+  mkdir -p .deploy
+  TASK_NGINX_BUILD_CONF=".deploy/nginx.server.effective.conf"
+  cp "$TASK_NGINX_CONF" "$TASK_NGINX_BUILD_CONF"
+fi
 
 export PERSONAL_AFFAIRS_RUNTIME_ENV_FILE="$TASK_ENV_FILE"
 export PERSONAL_AFFAIRS_API_IMAGE="personal-affairs-api:$TASK_RELEASE_TAG"
 export PERSONAL_AFFAIRS_WEB_IMAGE="personal-affairs-web:$TASK_RELEASE_TAG"
 
-docker compose -f "$TASK_COMPOSE_FILE" config >/dev/null
+docker compose -p "$TASK_COMPOSE_PROJECT" -f "$TASK_COMPOSE_FILE" config >/dev/null
 
 docker build \
   "${TASK_PROXY_ARGS[@]}" \
@@ -52,12 +66,12 @@ docker build \
   --build-arg NODE_IMAGE="$TASK_NODE_IMAGE" \
   --build-arg NGINX_IMAGE="$TASK_NGINX_IMAGE" \
   --build-arg NPM_REGISTRY="$TASK_NPM_REGISTRY" \
-  --build-arg NGINX_CONF=infra/nginx.server.conf \
+  --build-arg NGINX_CONF="$TASK_NGINX_BUILD_CONF" \
   -t "$PERSONAL_AFFAIRS_WEB_IMAGE" \
   .
 
 docker run --rm --network host --env-file "$TASK_ENV_FILE" "$PERSONAL_AFFAIRS_API_IMAGE" personal-affairs-migrate
-docker compose -f "$TASK_COMPOSE_FILE" up -d
+docker compose -p "$TASK_COMPOSE_PROJECT" -f "$TASK_COMPOSE_FILE" up -d
 
 for TASK_ATTEMPT in {1..20}; do
   if curl -fsS http://127.0.0.1:18098/api/v1/health >/dev/null; then
@@ -67,7 +81,7 @@ for TASK_ATTEMPT in {1..20}; do
 done
 
 curl -fsS http://127.0.0.1:18098/api/v1/health >/dev/null
-curl -fsS http://127.0.0.1:18110/ >/dev/null
+curl -fsS "$TASK_WEB_HEALTH_URL" >/dev/null
 
 echo "Personal affairs service deployed and health checks passed."
 echo "API image: $PERSONAL_AFFAIRS_API_IMAGE"

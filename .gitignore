@@ -13,6 +13,9 @@ frontend/dist/
 frontend/.vite/
 frontend/*.tsbuildinfo
 
+# Deployment staging
+.deploy/
+
 # Runtime config and secrets
 .env
 .env.*

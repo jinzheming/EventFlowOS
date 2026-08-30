@@ -30,6 +30,17 @@ def test_item_create_accepts_estimated_minutes_optional() -> None:
     assert item.estimated_minutes == 90
 
 
+def test_item_create_accepts_intake_mode_metadata() -> None:
+    item = ItemCreate(title="x", scope="work", intake_origin="web", intake_normalization="none")
+    assert item.intake_origin == "web"
+    assert item.intake_normalization == "none"
+
+
+def test_item_create_rejects_unknown_intake_mode() -> None:
+    with pytest.raises(ValidationError):
+        ItemCreate(title="x", scope="work", intake_normalization="rules")
+
+
 def test_item_create_rejects_estimated_minutes_out_of_range() -> None:
     with pytest.raises(ValidationError):
         ItemCreate(title="x", scope="work", estimated_minutes=0)

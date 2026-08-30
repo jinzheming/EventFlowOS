@@ -9,8 +9,16 @@ export type TimedSchedule = {
   relation: '开始' | '截止';
 };
 
-export function timedSchedulesForItem(item: Item): TimedSchedule[] {
-  if (item.status === 'done' || item.status === 'cancelled' || item.archived_at) return [];
+export type CalendarScheduleOptions = {
+  includeDone?: boolean;
+};
+
+function isCalendarHidden(item: Item, options: CalendarScheduleOptions = {}) {
+  return item.status === 'cancelled' || item.archived_at || (!options.includeDone && item.status === 'done');
+}
+
+export function timedSchedulesForItem(item: Item, options: CalendarScheduleOptions = {}): TimedSchedule[] {
+  if (isCalendarHidden(item, options)) return [];
   const schedules: TimedSchedule[] = [];
   if (item.start_at) schedules.push({ item, time: item.start_at, relation: '开始' });
   if (item.due_at) schedules.push({ item, time: item.due_at, relation: '截止' });
@@ -38,9 +46,14 @@ export function groupTimedSchedules(schedules: TimedSchedule[]) {
   ];
 }
 
-export function hasDateOnlySchedule(item: Item) {
-  if (item.status === 'done' || item.status === 'cancelled' || item.archived_at) return false;
+export function hasDateOnlySchedule(item: Item, options: CalendarScheduleOptions = {}) {
+  if (isCalendarHidden(item, options)) return false;
   return !item.start_at && !item.due_at && Boolean(item.start_date || item.due_date);
+}
+
+export function hasAnySchedule(item: Item, options: CalendarScheduleOptions = {}) {
+  if (isCalendarHidden(item, options)) return false;
+  return Boolean(item.start_at || item.due_at || item.start_date || item.due_date);
 }
 
 export function compareDateOnlyItems(a: Item, b: Item) {

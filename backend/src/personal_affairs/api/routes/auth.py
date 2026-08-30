@@ -28,6 +28,12 @@ from personal_affairs.storage.repositories.users import UsersRepository
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+def secure_session_cookie(request: Request) -> bool:
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    scheme = (forwarded_proto.split(",", 1)[0] if forwarded_proto else request.url.scheme).strip().lower()
+    return scheme == "https"
+
+
 @router.post("/login", response_model=SessionOut)
 def login(
     payload: LoginRequest,
@@ -51,7 +57,7 @@ def login(
         cfg.session_cookie_name,
         session["token"],
         httponly=True,
-        secure=cfg.app_env == "production",
+        secure=secure_session_cookie(http_request),
         samesite="lax",
         max_age=30 * 24 * 60 * 60,
     )
@@ -87,7 +93,7 @@ def logout(
     response.delete_cookie(
         cfg.session_cookie_name,
         httponly=True,
-        secure=cfg.app_env == "production",
+        secure=secure_session_cookie(request),
         samesite="lax",
     )
 
