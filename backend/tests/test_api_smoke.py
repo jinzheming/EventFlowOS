@@ -100,10 +100,13 @@ def test_health_and_openapi_do_not_require_database(monkeypatch) -> None:
         assert "post" in webhooks_path
         assert "delete" in schema["paths"]["/api/v1/webhooks/{webhook_id}"]
         assert "get" in schema["paths"]["/api/v1/webhooks/events"]
+        assert "get" in schema["paths"]["/api/v1/webhooks/health"]
         webhook_create = schema["components"]["schemas"]["WebhookCreate"]["properties"]
         assert {"name", "url", "events"} <= set(webhook_create)
         webhook_created = schema["components"]["schemas"]["WebhookCreated"]["properties"]
         assert {"secret", "events", "active"} <= set(webhook_created)
+        webhook_health = schema["components"]["schemas"]["WebhookHealthOut"]["properties"]
+        assert {"worker_seen_recently", "pending_count", "retry_count", "dead_count"} <= set(webhook_health)
         webhook_event = schema["components"]["schemas"]["WebhookEventOut"]["properties"]
         assert {"event_type", "status", "attempt_count"} <= set(webhook_event)
         proposals_path = schema["paths"]["/api/v1/agent-proposals"]

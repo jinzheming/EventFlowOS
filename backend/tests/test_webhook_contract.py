@@ -5,13 +5,20 @@ No database required — these exercise pure helpers only.
 import hashlib
 import hmac
 import socket
+from uuid import uuid4
 
+import httpx
 import pytest
 
 import personal_affairs.application.webhook_urls as webhook_urls
 from personal_affairs.api.routes.webhooks import _event_status
-from personal_affairs.application.webhook_urls import WebhookUrlError, validate_webhook_url
-from personal_affairs.workers.webhook_worker import sign_payload
+from personal_affairs.application.webhook_urls import (
+    WebhookUrlError,
+    validate_webhook_redirect,
+    validate_webhook_url,
+)
+from personal_affairs.config import Settings
+from personal_affairs.workers.webhook_worker import _deliver, sign_payload
 
 
 def test_sign_payload_hmac_sha256() -> None:
@@ -83,3 +90,78 @@ def test_validate_webhook_url_enforces_allowed_hosts(monkeypatch) -> None:
     assert validate_webhook_url("https://example.com/a", allowed_hosts=".example.com")
     with pytest.raises(WebhookUrlError):
         validate_webhook_url("https://attacker.test/a", allowed_hosts=".example.com")
+
+
+
+def test_validate_webhook_redirect_requires_https_public_target(monkeypatch) -> None:
+    def fake_getaddrinfo(host: str, port: int, type: int = 0) -> list[tuple]:
+        return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", port))]
+
+    monkeypatch.setattr(webhook_urls, "getaddrinfo", fake_getaddrinfo)
+
+    assert (
+        validate_webhook_redirect(
+            "https://example.com/hook",
+            "/next",
+            allowed_hosts="example.com",
+        )
+        == "https://example.com/next"
+    )
+    with pytest.raises(WebhookUrlError, match="https"):
+        validate_webhook_redirect("https://example.com/hook", "http://example.com/next")
+
+
+@pytest.mark.asyncio
+async def test_deliver_blocks_redirects(monkeypatch) -> None:
+    def fake_getaddrinfo(host: str, port: int, type: int = 0) -> list[tuple]:
+        return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", port))]
+
+    monkeypatch.setattr(webhook_urls, "getaddrinfo", fake_getaddrinfo)
+
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(302, headers={"location": "https://example.com/next"})
+    )
+    ok, code, message = await _deliver(
+        {"url": "https://example.com/hook", "secret": "secret"},
+        {
+            "id": uuid4(),
+            "event_type": "item.created",
+            "aggregate": "item",
+            "aggregate_id": uuid4(),
+            "payload": {},
+            "attempt_count": 1,
+        },
+        Settings(webhook_response_body_limit_bytes=64),
+        transport=transport,
+    )
+
+    assert ok is False
+    assert code == "REDIRECT_BLOCKED"
+    assert message == "Webhook redirects are not followed."
+
+
+@pytest.mark.asyncio
+async def test_deliver_truncates_error_response_bodies(monkeypatch) -> None:
+    def fake_getaddrinfo(host: str, port: int, type: int = 0) -> list[tuple]:
+        return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", port))]
+
+    monkeypatch.setattr(webhook_urls, "getaddrinfo", fake_getaddrinfo)
+
+    transport = httpx.MockTransport(lambda request: httpx.Response(500, content=b"x" * 100))
+    ok, code, message = await _deliver(
+        {"url": "https://example.com/hook", "secret": "secret"},
+        {
+            "id": uuid4(),
+            "event_type": "item.created",
+            "aggregate": "item",
+            "aggregate_id": uuid4(),
+            "payload": {},
+            "attempt_count": 1,
+        },
+        Settings(webhook_response_body_limit_bytes=12),
+        transport=transport,
+    )
+
+    assert ok is False
+    assert code == "HTTP_500"
+    assert message == "xxxxxxxxxxxx [truncated]"

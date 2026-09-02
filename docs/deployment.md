@@ -2,12 +2,33 @@
 
 This runbook describes the safe baseline for running EventFlowOS as a self-hosted personal application.
 
+## 10-Minute Local Trial
+
+```bash
+git clone https://github.com/jinzheming/EventFlowOS.git
+cd EventFlowOS
+docker compose -f infra/docker-compose.dev.yml up --build
+```
+
+Open the web app at `http://127.0.0.1:18110` and the API at `http://127.0.0.1:18098`. The development compose file binds services to loopback and uses disposable local credentials.
+
+Run `make verify` before changing code, and run `make verify-release` with a PostgreSQL test database before tagging a release candidate.
+
 ## Production Boundary
 
 - Run the API, workers, MCP server, PostgreSQL, and web frontend in an environment controlled by the operator.
 - Terminate TLS at a reverse proxy, load balancer, or trusted edge before traffic reaches the containers.
 - Keep the backend API and MCP listener bound to private or loopback interfaces unless intentionally exposed behind authentication and rate limits.
 - Treat browser-delivered frontend configuration as public; never place secrets in the frontend bundle.
+
+## Minimal Production Path
+
+1. Provision PostgreSQL 16+ and a reverse proxy with TLS.
+2. Copy `infra/.env.example` to a secret runtime path outside git and replace all placeholders.
+3. Set exact `PERSONAL_AFFAIRS_ALLOWED_HOSTS` values for the public hostnames.
+4. Keep `PERSONAL_AFFAIRS_API_DOCS_ENABLED=false` unless the route is protected elsewhere.
+5. Build or pull the API and web images, then run `infra/docker-compose.server.yml` with `PERSONAL_AFFAIRS_RUNTIME_ENV_FILE` pointing at the runtime env file.
+6. Confirm `/api/v1/ready`, `/api/v1/reminders/health`, and `/api/v1/webhooks/health` after startup.
 
 ## Required Runtime Configuration
 
@@ -44,13 +65,15 @@ For internet-facing deployments, add edge limits for at least:
 - `POST /api/v1/webhooks`
 - any future file upload, import, AI, or expensive search endpoints
 
+Webhook delivery errors capture only the first `PERSONAL_AFFAIRS_WEBHOOK_RESPONSE_BODY_LIMIT_BYTES` bytes from failed responses. Keep this small enough to avoid storing large or sensitive remote response bodies in operator-visible diagnostics.
+
 The bundled Nginx examples define conservative `limit_req` zones for login, token creation, and webhook creation paths. Tune these values at the outermost public edge if another proxy or tunnel sits in front of Nginx.
 
 Cookie-authenticated write endpoints require a CSRF token. SameSite cookies and edge checks are defense in depth; do not disable the token requirement for browser clients.
 
 ## Outbound Webhooks
 
-Webhook subscriptions reject localhost, private, link-local, reserved, and other non-public destinations by default. Prefer setting `PERSONAL_AFFAIRS_WEBHOOK_ALLOWED_HOSTS` to a comma-separated allowlist of public callback hosts. The allowlist accepts exact hosts plus suffix entries such as `.example.com` or `*.example.com`.
+Webhook subscriptions reject localhost, private, link-local, reserved, and other non-public destinations by default. Prefer setting `PERSONAL_AFFAIRS_WEBHOOK_ALLOWED_HOSTS` to a comma-separated allowlist of public callback hosts. The allowlist accepts exact hosts plus suffix entries such as `.example.com` or `*.example.com`. Redirects are not followed; operators should configure the final public HTTPS endpoint directly.
 
 Only set `PERSONAL_AFFAIRS_WEBHOOK_ALLOW_PRIVATE_URLS=true` when internal callbacks are an explicit deployment requirement and the runtime network is trusted.
 

@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     webhook_lease_seconds: int = 60
     webhook_max_attempts: int = 6
     webhook_timeout_seconds: float = 8.0
+    webhook_response_body_limit_bytes: int = 4096
     webhook_allow_private_urls: bool = False
     webhook_allowed_hosts: str = ""
     feishu_im_enabled: bool = False

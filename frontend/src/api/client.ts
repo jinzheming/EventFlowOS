@@ -52,6 +52,14 @@ export interface WebhookCreatedSub extends WebhookSubscription {
   secret: string;
 }
 
+export interface WebhookHealth {
+  worker_seen_recently: boolean;
+  pending_count: number;
+  retry_count: number;
+  dead_count: number;
+  max_lag_seconds: number | null;
+}
+
 export interface WebhookEvent {
   id: string;
   event_type: string;
@@ -372,6 +380,7 @@ export const api = {
   deleteWebhook: (csrf: string, webhookId: string) =>
     request<void>(`/webhooks/${webhookId}`, { method: 'DELETE' }, csrf),
   webhookEvents: (limit = 20) => request<WebhookEvent[]>(`/webhooks/events?limit=${limit}`),
+  webhookHealth: () => request<WebhookHealth>('/webhooks/health'),
   items: (scope: Scope, includeArchived = false, search = '') =>
     request<Item[]>(
       `/items?scope=${scope}&include_archived=${includeArchived}${search ? `&search=${encodeURIComponent(search)}` : ''}`,

@@ -107,3 +107,61 @@ class EventOutboxRepository:
             (user_id, event_type, event_type, limit),
         ).fetchall()
         return list(rows)
+
+    def record_webhook_heartbeat(
+        self,
+        worker_id: str,
+        *,
+        claimed_count: int = 0,
+        published_count: int = 0,
+        failed_count: int = 0,
+    ) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO personal_affairs.webhook_worker_heartbeats(
+                worker_id, last_seen_at, claimed_count, published_count, failed_count
+            )
+            VALUES (%s, now(), %s, %s, %s)
+            ON CONFLICT (worker_id) DO UPDATE
+            SET last_seen_at = now(),
+                claimed_count = personal_affairs.webhook_worker_heartbeats.claimed_count + EXCLUDED.claimed_count,
+                published_count = personal_affairs.webhook_worker_heartbeats.published_count + EXCLUDED.published_count,
+                failed_count = personal_affairs.webhook_worker_heartbeats.failed_count + EXCLUDED.failed_count
+            """,
+            (worker_id, claimed_count, published_count, failed_count),
+        )
+
+    def health(self, user_id: UUID) -> dict:
+        row = self.conn.execute(
+            """
+            SELECT
+              EXISTS(
+                SELECT 1
+                FROM personal_affairs.webhook_worker_heartbeats
+                WHERE last_seen_at > now() - interval '2 minutes'
+              ) AS worker_seen_recently,
+              COUNT(*) FILTER (
+                WHERE published_at IS NULL
+                  AND claimed_at IS NULL
+                  AND last_error_code IS NULL
+              )::int AS pending_count,
+              COUNT(*) FILTER (
+                WHERE published_at IS NULL
+                  AND last_error_code IS NOT NULL
+                  AND last_error_code NOT LIKE 'DEAD:%'
+              )::int AS retry_count,
+              COUNT(*) FILTER (
+                WHERE published_at IS NULL
+                  AND last_error_code LIKE 'DEAD:%'
+              )::int AS dead_count,
+              FLOOR(MAX(EXTRACT(EPOCH FROM now() - created_at)) FILTER (
+                WHERE published_at IS NULL
+                  AND (last_error_code IS NULL OR last_error_code NOT LIKE 'DEAD:%')
+              ))::int AS max_lag_seconds
+            FROM personal_affairs.event_outbox
+            WHERE user_id = %s
+            """,
+            (user_id,),
+        ).fetchone()
+        assert row is not None
+        return dict(row)

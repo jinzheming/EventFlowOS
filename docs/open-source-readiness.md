@@ -19,7 +19,7 @@ This note records the release-candidate checks for opening EventFlowOS as a self
 
 ## Repository Controls
 
-- CI covers backend tests, Ruff, Pyright, Python dependency audit, frontend npm audit, frontend lint/build, compose validation, Docker build validation, CodeQL, and gitleaks.
+- CI covers backend tests, PostgreSQL integration tests, Ruff, Pyright, Python dependency audit, frontend npm audit, frontend Vitest/lint/build/E2E, compose validation, Docker build validation, CodeQL, and gitleaks.
 - Dependabot is configured for GitHub Actions, frontend npm, and backend Python dependency manifests where GitHub supports them.
 - Issue templates, pull request template, contribution guide, security policy, and code of conduct are present.
 
@@ -33,7 +33,7 @@ This note records the release-candidate checks for opening EventFlowOS as a self
 ## Residual Risks
 
 - The in-process rate limiter is per process and resets on restart; internet-facing deployments should enforce equivalent limits at the edge.
-- Webhook DNS rebinding resistance is basic; the current guard rejects unsafe resolved addresses, but hardened production use should consider pinning resolved IPs through the delivery attempt.
+- Webhook DNS rebinding resistance is improved by create-time and delivery-time public address validation plus blocked redirects, but hardened production use should still consider pinning resolved IPs through the delivery attempt.
 - Multi-user account management and multi-tenant isolation have not been fully reviewed; public messaging must keep the single-user self-hosted boundary.
 - Full EventFlowOS internal renaming is deferred to avoid breaking existing runtime commands and deployment configuration.
 
@@ -42,4 +42,4 @@ This note records the release-candidate checks for opening EventFlowOS as a self
 - Enable branch protection for `main`: pull requests required, required CI checks, no force pushes, no branch deletion, and conversation resolution required.
 - Enable secret scanning, push protection, Dependabot alerts, Dependabot security updates, and private vulnerability reporting when available.
 - Set repository description and topics only after README and release notes are reviewed.
-- Do not create a public release, tag, package, or container image until the fresh-clone verification is green.
+- Do not create a public release, tag, package, or container image until `make verify-release` is green from a fresh clone.

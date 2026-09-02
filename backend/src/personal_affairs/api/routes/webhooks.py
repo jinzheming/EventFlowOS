@@ -6,7 +6,13 @@ from psycopg import Connection
 from personal_affairs.api.dependencies import current_user_id, db_conn, require_csrf, settings
 from personal_affairs.api.problem_details import not_found
 from personal_affairs.api.rate_limit import enforce_rate_limit, rate_limit_key_part
-from personal_affairs.api.schemas import WebhookCreate, WebhookCreated, WebhookEventOut, WebhookOut
+from personal_affairs.api.schemas import (
+    WebhookCreate,
+    WebhookCreated,
+    WebhookEventOut,
+    WebhookHealthOut,
+    WebhookOut,
+)
 from personal_affairs.application.webhook_urls import WebhookUrlError, validate_webhook_url
 from personal_affairs.config import Settings
 from personal_affairs.domain.errors import DomainError, ErrorCode
@@ -73,6 +79,14 @@ def delete_webhook(
     if not WebhookSubscriptionsRepository(conn).delete(user_id, webhook_id):
         return not_found()
     return Response(status_code=204)
+
+
+@router.get("/health", response_model=WebhookHealthOut)
+def webhook_health(
+    user_id: UUID = Depends(current_user_id),
+    conn: Connection = Depends(db_conn),
+) -> dict:
+    return EventOutboxRepository(conn).health(user_id)
 
 
 @router.get("/events", response_model=list[WebhookEventOut])

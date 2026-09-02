@@ -14,8 +14,12 @@ from uuid import UUID
 
 import httpx
 
-from personal_affairs.application.webhook_urls import WebhookUrlError, validate_webhook_url
-from personal_affairs.config import get_settings
+from personal_affairs.application.webhook_urls import (
+    WebhookUrlError,
+    validate_webhook_redirect,
+    validate_webhook_url,
+)
+from personal_affairs.config import Settings, get_settings
 from personal_affairs.domain.reminder_state import next_retry_at
 from personal_affairs.storage.database import connection
 from personal_affairs.storage.repositories.event_outbox import EventOutboxRepository
@@ -23,7 +27,7 @@ from personal_affairs.storage.repositories.webhooks import WebhookSubscriptionsR
 
 
 def _worker_id() -> str:
-    return f"{gethostname()}:{id(object())}"
+    return f"webhook:{gethostname()}:{id(object())}"
 
 
 def sign_payload(secret: str, body: bytes) -> str:
@@ -41,7 +45,30 @@ def _event_body(event: dict) -> bytes:
     return json.dumps(body, ensure_ascii=False, default=str).encode("utf-8")
 
 
-async def _deliver(sub: dict, event: dict, cfg) -> tuple[bool, str, str]:
+async def _read_limited_response_text(response: httpx.Response, limit_bytes: int) -> str:
+    chunks: list[bytes] = []
+    total = 0
+    truncated = False
+    limit = max(0, limit_bytes)
+    async for chunk in response.aiter_bytes():
+        if total + len(chunk) > limit:
+            truncated = True
+        if total < limit:
+            chunks.append(chunk[: limit - total])
+        total += len(chunk)
+        if total >= limit:
+            break
+    text = b"".join(chunks).decode(response.encoding or "utf-8", errors="replace")
+    return f"{text} [truncated]" if truncated else text
+
+
+async def _deliver(
+    sub: dict,
+    event: dict,
+    cfg: Settings,
+    *,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> tuple[bool, str, str]:
     try:
         url = validate_webhook_url(
             sub["url"],
@@ -59,13 +86,32 @@ async def _deliver(sub: dict, event: dict, cfg) -> tuple[bool, str, str]:
         "X-PA-Retry-Count": str(event["attempt_count"]),
         "X-PA-Signature": sign_payload(sub["secret"], body),
     }
+    client_kwargs = {"timeout": cfg.webhook_timeout_seconds, "follow_redirects": False}
+    if transport is not None:
+        client_kwargs["transport"] = transport
     try:
-        async with httpx.AsyncClient(timeout=cfg.webhook_timeout_seconds, follow_redirects=False) as client:
-            response = await client.post(url, content=body, headers=headers)
-        if 200 <= response.status_code < 300:
-            return True, "OK", ""
-        return False, f"HTTP_{response.status_code}", (response.text or "")[:200]
-    except Exception as exc:  # network/provider failures must not crash the loop
+        async with httpx.AsyncClient(**client_kwargs) as client, client.stream(
+            "POST", url, content=body, headers=headers
+        ) as response:
+            if 200 <= response.status_code < 300:
+                return True, "OK", ""
+            if 300 <= response.status_code < 400:
+                try:
+                    validate_webhook_redirect(
+                        url,
+                        response.headers.get("location"),
+                        allow_private=cfg.webhook_allow_private_urls,
+                        allowed_hosts=cfg.webhook_allowed_hosts,
+                    )
+                except WebhookUrlError as exc:
+                    return False, "REDIRECT_BLOCKED", str(exc)[:200]
+                return False, "REDIRECT_BLOCKED", "Webhook redirects are not followed."
+            message = await _read_limited_response_text(
+                response,
+                cfg.webhook_response_body_limit_bytes,
+            )
+        return False, f"HTTP_{response.status_code}", (message or response.reason_phrase)[:200]
+    except Exception as exc:
         return False, "NETWORK_ERROR", str(exc)[:200]
 
 
@@ -75,6 +121,7 @@ async def publish_once(worker_id: str) -> int:
         repo = EventOutboxRepository(conn)
         repo.recover_expired_leases(cfg.webhook_lease_seconds)
         events = repo.claim_batch(worker_id, cfg.webhook_lease_seconds, cfg.webhook_batch_size)
+        repo.record_webhook_heartbeat(worker_id, claimed_count=len(events))
         conn.commit()
     for event in events:
         await _publish_event(worker_id, event, cfg)
@@ -87,7 +134,9 @@ async def _publish_event(worker_id: str, event: dict, cfg) -> None:
         subs = WebhookSubscriptionsRepository(conn).list_active_for_event(user_id, event["event_type"])
     if not subs:
         with connection(cfg) as conn:
-            EventOutboxRepository(conn).mark_published(event["id"])
+            repo = EventOutboxRepository(conn)
+            repo.mark_published(event["id"])
+            repo.record_webhook_heartbeat(worker_id, published_count=1)
             conn.commit()
         return
 
@@ -101,6 +150,7 @@ async def _publish_event(worker_id: str, event: dict, cfg) -> None:
         repo = EventOutboxRepository(conn)
         if not failures:
             repo.mark_published(event["id"])
+            repo.record_webhook_heartbeat(worker_id, published_count=1)
         else:
             attempt = int(event["attempt_count"])
             seed = int(UUID(str(event["id"])).int % 999999)
@@ -110,6 +160,7 @@ async def _publish_event(worker_id: str, event: dict, cfg) -> None:
             if retry_at is None:
                 code = "DEAD:" + code
             repo.mark_failure(event["id"], attempt, retry_at, code, message)
+            repo.record_webhook_heartbeat(worker_id, failed_count=1)
         conn.commit()
 
 

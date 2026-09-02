@@ -1,0 +1,10 @@
+* @jinzheming
+
+/backend/src/personal_affairs/api/dependencies.py @jinzheming
+/backend/src/personal_affairs/api/routes/auth.py @jinzheming
+/backend/src/personal_affairs/api/routes/webhooks.py @jinzheming
+/backend/src/personal_affairs/application/webhook_urls.py @jinzheming
+/backend/src/personal_affairs/mcp/ @jinzheming
+/backend/migrations/ @jinzheming
+/infra/ @jinzheming
+/.github/workflows/ @jinzheming

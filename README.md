@@ -28,6 +28,9 @@ EventFlowOS is an early-preview, self-hosted, single-user application. It is sui
 
 See `docs/deployment.md` for the production boundary, security checklist, and backup/restore runbook.
 See `docs/open-source-readiness.md` for the current release-candidate readiness notes and residual risks.
+See `docs/release.md` for the beta release gate, known limitations, upgrade notes, and rollback notes.
+See `docs/threat-model.md` for the single-user self-hosted threat model.
+See `docs/roadmap.md` for beta stabilization priorities and good first issues.
 
 ## Local Development
 
@@ -56,19 +59,17 @@ Default local ports:
 
 ## Verification
 
+Use the shared verification entrypoints so local checks and CI stay aligned.
+
 ```bash
-cd backend
-uv run pytest -q
-uv run ruff check src tests
-uv run pyright
-cd ..
-npm test --prefix frontend
-npm audit --prefix frontend --audit-level=moderate
-npm run lint --prefix frontend
-npm run build --prefix frontend
-docker compose -f infra/docker-compose.dev.yml config
-PERSONAL_AFFAIRS_RUNTIME_ENV_FILE=<absolute-path-to-runtime-env-or-env-example> docker compose -f infra/docker-compose.server.yml config
+make verify
+
+# Strict release gate: requires gitleaks and a PostgreSQL test database.
+export PERSONAL_AFFAIRS_TEST_DATABASE_URL=postgresql://personal_affairs:personal_affairs@127.0.0.1:5432/personal_affairs
+make verify-release
 ```
+
+The release gate covers backend tests/static checks/audit, frontend type check/Vitest/build/audit/E2E, compose validation, PostgreSQL integration tests, secret scanning, and whitespace checks.
 
 ## Runtime Configuration
 
@@ -95,6 +96,7 @@ The API includes a small in-process rate limiter for login, personal access toke
 - `PERSONAL_AFFAIRS_LOGIN_RATE_LIMIT_ATTEMPTS`
 - `PERSONAL_AFFAIRS_TOKEN_CREATE_RATE_LIMIT_ATTEMPTS`
 - `PERSONAL_AFFAIRS_WEBHOOK_CREATE_RATE_LIMIT_ATTEMPTS`
+- `PERSONAL_AFFAIRS_WEBHOOK_RESPONSE_BODY_LIMIT_BYTES`
 
 Optional delivery adapters:
 
@@ -124,7 +126,7 @@ Do not commit real passwords, webhook URLs, personal access tokens, session secr
 
 - Report vulnerabilities privately using `SECURITY.md`.
 - Use `CONTRIBUTING.md` before opening pull requests.
-- CI runs backend tests, static checks, dependency audits, compose validation, Docker build validation, frontend build checks, CodeQL, and secret scanning.
+- CI runs backend tests, PostgreSQL integration tests, static checks, dependency audits, frontend Vitest/build/E2E checks, compose validation, Docker build validation, CodeQL, and secret scanning.
 
 ## Deployment Boundary
 

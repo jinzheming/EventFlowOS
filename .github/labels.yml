@@ -1,0 +1,24 @@
+- name: bug
+  color: d73a4a
+  description: Reproducible defect or regression
+- name: enhancement
+  color: a2eeef
+  description: Scoped product or workflow improvement
+- name: security
+  color: b60205
+  description: Security-sensitive change or hardening task
+- name: documentation
+  color: 0075ca
+  description: Docs, runbooks, examples, or release notes
+- name: good first issue
+  color: 7057ff
+  description: Small, well-scoped contribution suitable for first-time contributors
+- name: needs reproduction
+  color: fbca04
+  description: Needs a minimal local or test-deployment reproduction
+- name: deployment
+  color: 5319e7
+  description: Docker, compose, reverse proxy, or runtime configuration
+- name: dependencies
+  color: 0366d6
+  description: Dependency updates

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from ipaddress import ip_address
 from socket import SOCK_STREAM, getaddrinfo
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 
 class WebhookUrlError(ValueError):
@@ -33,6 +33,25 @@ def validate_webhook_url(raw_url: str, *, allow_private: bool = False, allowed_h
         _validate_public_destination(host, port or (443 if scheme == "https" else 80))
 
     return urlunsplit((scheme, _netloc(host, port), parsed.path or "", parsed.query, ""))
+
+
+def validate_webhook_redirect(
+    source_url: str,
+    location: str | None,
+    *,
+    allow_private: bool = False,
+    allowed_hosts: str = "",
+) -> str:
+    if not location or not location.strip():
+        raise WebhookUrlError("Webhook redirect did not include a Location header.")
+    target = validate_webhook_url(
+        urljoin(source_url, location.strip()),
+        allow_private=allow_private,
+        allowed_hosts=allowed_hosts,
+    )
+    if urlsplit(target).scheme != "https":
+        raise WebhookUrlError("Webhook redirects must target https URLs.")
+    return target
 
 
 def _netloc(host: str, port: int | None) -> str:

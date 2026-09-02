@@ -11,31 +11,30 @@ permissions:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: personal_affairs
+          POSTGRES_USER: personal_affairs
+          POSTGRES_PASSWORD: personal_affairs
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U personal_affairs -d personal_affairs"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      PERSONAL_AFFAIRS_TEST_DATABASE_URL: postgresql://personal_affairs:personal_affairs@127.0.0.1:5432/personal_affairs
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@v5
-      - name: Install backend dependencies
-        working-directory: backend
-        run: uv sync --all-extras --locked
-      - name: Export audit requirements
-        working-directory: backend
-        run: |
-          uv export --all-extras --format requirements-txt --no-hashes --output-file /tmp/personal-affairs-requirements.txt
-          grep -v '^-e .' /tmp/personal-affairs-requirements.txt > /tmp/personal-affairs-requirements-audit.txt
-      - name: Audit Python dependencies
-        run: uvx pip-audit -r /tmp/personal-affairs-requirements-audit.txt --no-deps --disable-pip --progress-spinner off --timeout 60
-      - name: Test backend
-        working-directory: backend
-        run: uv run pytest -q
-      - name: Lint backend
-        working-directory: backend
-        run: uv run ruff check src tests
-      - name: Type check backend
-        working-directory: backend
-        run: uv run pyright
+      - name: Verify backend
+        run: ./scripts/verify-backend.sh
 
   frontend:
     runs-on: ubuntu-latest
@@ -46,25 +45,17 @@ jobs:
           node-version: "20"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Install frontend dependencies
-        run: npm ci --prefix frontend
-      - name: Audit frontend dependencies
-        run: npm audit --prefix frontend --audit-level=moderate
-      - name: Lint frontend
-        run: npm run lint --prefix frontend
-      - name: Build frontend
-        run: npm run build --prefix frontend
+      - name: Verify frontend
+        env:
+          RUN_E2E: "1"
+        run: ./scripts/verify-frontend.sh
 
   compose:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate dev compose
-        run: docker compose -f infra/docker-compose.dev.yml config
-      - name: Validate server compose
-        env:
-          PERSONAL_AFFAIRS_RUNTIME_ENV_FILE: ${{ github.workspace }}/infra/.env.example
-        run: docker compose -f infra/docker-compose.server.yml config
+      - name: Verify compose
+        run: ./scripts/verify-compose.sh
 
   docker-build:
     runs-on: ubuntu-latest

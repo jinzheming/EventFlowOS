@@ -95,6 +95,14 @@ class WebhookCreated(WebhookOut):
     secret: str
 
 
+class WebhookHealthOut(BaseModel):
+    worker_seen_recently: bool
+    pending_count: int = 0
+    retry_count: int = 0
+    dead_count: int = 0
+    max_lag_seconds: int | None = None
+
+
 class WebhookEventOut(BaseModel):
     id: UUID
     event_type: str
