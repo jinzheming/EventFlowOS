@@ -8,6 +8,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ### Added
 
+- Categorized EventFlowOS development status documentation for the personal affairs management product boundary.
 - Open-source governance files: security policy, contribution guide, issue templates, pull request template, and code of conduct.
 - GitHub CI for backend tests, static checks, dependency audits, frontend build checks, compose validation, Docker image build validation, CodeQL, and secret scanning.
 - Deployment runbook covering production configuration, host/header/body limits, rate limiting, webhook boundaries, backups, and release checks.

@@ -1,12 +1,14 @@
 # EventFlowOS
 
-Self-hosted event-flow operating system for work items, personal tasks, projects, calendar reminders, outbound webhooks, and agent-native MCP access.
+Self-hosted personal affairs management OS for work items, personal tasks, projects, calendar reminders, outbound webhooks, and agent-native MCP access.
 
 ## What It Is
 
 - A personal operations system for capturing tasks, work items, projects, reminders, calendar feeds, and lightweight agent proposals.
 - A FastAPI backend with PostgreSQL migrations, reminder and webhook workers, and an MCP server for agent-native access.
 - A React/Vite web client designed for a single operator's self-hosted deployment.
+
+See `docs/development-status.md` for the current categorized development status and product boundary.
 
 ## What It Is Not
 
@@ -28,6 +30,7 @@ EventFlowOS is an early-preview, self-hosted, single-user application. It is sui
 
 See `docs/deployment.md` for the production boundary, security checklist, and backup/restore runbook.
 See `docs/open-source-readiness.md` for the current release-candidate readiness notes and residual risks.
+See `docs/development-status.md` for a categorized snapshot of completed modules, remaining work, and suggested GitHub metadata.
 
 ## Local Development
 
