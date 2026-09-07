@@ -33,21 +33,30 @@ from personal_affairs.application.agent_context_service import (
 )
 from personal_affairs.application.agent_proposal_service import AgentProposalService
 from personal_affairs.application.calendar_query_service import CalendarQueryService
+from personal_affairs.application.external_profiles import (
+    external_profile_presets,
+    external_purpose_presets,
+)
 from personal_affairs.application.item_intake_normalizer import ItemIntakeNormalizer
 from personal_affairs.application.item_service import ItemService
+from personal_affairs.application.llm_profiles import llm_profile_presets, llm_purpose_presets
 from personal_affairs.application.meeting_invite_parser import parse_tencent_meeting_invite
 from personal_affairs.application.people_service import PeopleService
 from personal_affairs.application.reminder_service import ReminderService
+from personal_affairs.application.write_targets import write_target_presets
 from personal_affairs.config import get_settings
 from personal_affairs.domain.enums import AgentProposalState, ItemScope, ItemStatus, ReminderTiming
 from personal_affairs.storage.database import connection
 from personal_affairs.storage.repositories.activity import ActivityRepository
 from personal_affairs.storage.repositories.agent_proposals import AgentProposalsRepository
+from personal_affairs.storage.repositories.external_profiles import ExternalProfilesRepository
 from personal_affairs.storage.repositories.items import ItemsRepository
+from personal_affairs.storage.repositories.llm_profiles import LLMProfilesRepository
 from personal_affairs.storage.repositories.people import PeopleRepository
 from personal_affairs.storage.repositories.projects import ProjectsRepository
 from personal_affairs.storage.repositories.reminders import RemindersRepository
 from personal_affairs.storage.repositories.tokens import TokensRepository
+from personal_affairs.storage.repositories.write_targets import WriteTargetsRepository
 
 _MCP_HOST = os.environ.get("PERSONAL_AFFAIRS_MCP_HOST", "127.0.0.1")
 _MCP_PORT = int(os.environ.get("PERSONAL_AFFAIRS_MCP_PORT", "18099"))
@@ -529,6 +538,120 @@ async def pa_get_channels() -> dict:
 
 
 @mcp.tool()
+async def pa_list_write_targets(active_only: bool = True) -> list[dict]:
+    """List external write targets configured by the user.
+
+    Agents must call this before writing Personal Affairs data to Feishu Base
+    or another external table. Respect target_url, format_key, field_mapping,
+    and instructions; do not hard-code a Feishu Base URL or column names.
+    """
+    return await _authed(lambda conn, uid: WriteTargetsRepository(conn).list_for_user(uid, active_only))
+
+
+@mcp.tool()
+async def pa_get_write_target_presets() -> list[dict]:
+    """Return built-in write target presets for UI/agent setup flows."""
+    await _user_id()
+    return write_target_presets()
+
+
+@mcp.tool()
+async def pa_list_external_profiles(capability: str | None = None, active_only: bool = True) -> list[dict]:
+    """List user-configured external capability profiles.
+
+    Profiles describe the provider/capability/auth_ref; bindings describe the
+    concrete purpose, target_ref, format, mapping, and instructions.
+    """
+    return await _authed(lambda conn, uid: ExternalProfilesRepository(conn).list_profiles(uid, capability, active_only))
+
+
+@mcp.tool()
+async def pa_list_external_bindings(
+    purpose_key: str | None = None,
+    capability: str | None = None,
+    active_only: bool = True,
+) -> list[dict]:
+    """List configured external bindings for Agent/external automation use.
+
+    Agents must call this, or pa_resolve_external_bindings, before any external
+    read/write/sync/notify operation. Respect target_ref, format_key,
+    field_mapping, value_mapping, instructions, conflict_policy, dry_run, and
+    auth_ref; do not hard-code Feishu URLs, field names, webhook URLs, or
+    calendar ids.
+    """
+    return await _authed(
+        lambda conn, uid: ExternalProfilesRepository(conn).list_bindings(uid, purpose_key, capability, active_only)
+    )
+
+
+@mcp.tool()
+async def pa_resolve_external_bindings(
+    purpose_key: str,
+    capability: str | None = None,
+    scope_type: str = "global",
+    scope_value: str | None = None,
+) -> list[dict]:
+    """Resolve active external bindings for a purpose and optional scope.
+
+    Use purpose_key examples: item_write, calendar_sync, reminder_notify,
+    source_import, lookup. Multiple returned bindings may all be intended
+    targets; follow priority and each binding's instructions/dry_run flag.
+    """
+    return await _authed(
+        lambda conn, uid: ExternalProfilesRepository(conn).resolve_bindings(
+            uid,
+            purpose_key,
+            capability,
+            scope_type,
+            scope_value,
+        )
+    )
+
+
+@mcp.tool()
+async def pa_get_external_profile_presets() -> dict:
+    """Return built-in external profile and purpose presets for setup flows."""
+    await _user_id()
+    return {"profiles": external_profile_presets(), "purposes": external_purpose_presets()}
+
+
+@mcp.tool()
+async def pa_list_llm_profiles(active_only: bool = True) -> list[dict]:
+    """List user-configured LLM profiles.
+
+    Agents must call this, or pa_get_llm_binding, before choosing a model for
+    Personal Affairs parsing, summaries, proposals, or external formatting.
+    Respect model_name, provider_key, params, capabilities, auth_ref, and
+    instructions; do not hard-code a model name, base URL, or provider.
+    """
+    return await _authed(lambda conn, uid: LLMProfilesRepository(conn).list_profiles(uid, active_only))
+
+
+@mcp.tool()
+async def pa_get_llm_binding(
+    purpose_key: str,
+    scope_type: str = "global",
+    scope_value: str | None = None,
+) -> dict | None:
+    """Resolve the active LLM binding for a purpose and optional scope.
+
+    purpose_key examples: intake_normalization, proposal_extract, daily_brief,
+    meeting_parse, external_formatting, risk_review. Agents must follow the
+    returned profile and binding instructions before invoking an LLM.
+    """
+    return await _authed(
+        lambda conn, uid: LLMProfilesRepository(conn).resolve_binding(uid, purpose_key, scope_type, scope_value)
+    )
+
+
+@mcp.tool()
+async def pa_get_llm_profile_presets() -> dict:
+    """Return built-in LLM profile and purpose presets for setup flows."""
+    await _user_id()
+    return {"profiles": llm_profile_presets(), "purposes": llm_purpose_presets()}
+
+
+@mcp.tool()
 async def pa_reminder_health() -> dict:
     """Reminder worker health: lag, pending/retry/dead counts."""
     await _user_id()
@@ -661,6 +784,12 @@ def pa_daily_brief() -> str:
         "You are the user's personal affairs assistant. Build a concise daily brief: "
         "query pa_list_deliveries(unseen=True) for pending reminders, pa_list_items for "
         "today's work/personal items, then propose a prioritized action plan. "
+        "If the user asks to write or sync data to Feishu Base or another external table, "
+        "first call pa_resolve_external_bindings or pa_list_write_targets and follow the user's "
+        "configured target_ref/target_url, format_key, mappings, conflict policy, and instructions "
+        "instead of using hard-coded presets. "
+        "If choosing an LLM for parsing, summarizing, proposing, or formatting, first call "
+        "pa_get_llm_binding for the relevant purpose and follow the configured profile. "
         "Prefer Chinese output."
     )
 

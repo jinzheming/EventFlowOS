@@ -96,6 +96,33 @@ The API includes a small in-process rate limiter for login, personal access toke
 - `PERSONAL_AFFAIRS_TOKEN_CREATE_RATE_LIMIT_ATTEMPTS`
 - `PERSONAL_AFFAIRS_WEBHOOK_CREATE_RATE_LIMIT_ATTEMPTS`
 
+New item creation can optionally normalize weak/free-form input through an OpenAI-compatible gateway before validation. It is off by default unless a user-configured LLM binding is active, and the service only applies confident suggestions while preserving explicit scope and schedule fields.
+
+Users can override the model through **设置 → AI 模型**. Create an LLM Profile (provider, base URL, model name, auth reference, capabilities, default params) and bind it to `intake_normalization`; that binding takes precedence over the env fallback. The bundled presets cover the existing LiteLLM DeepSeek Flash route, any OpenAI-compatible gateway, and local Ollama-style endpoints. API keys still live in runtime secrets or gateway virtual keys; the app stores only `auth_ref`.
+
+Runtime env fallback knobs:
+
+```bash
+PERSONAL_AFFAIRS_INTAKE_NORMALIZATION_ENABLED=true
+PERSONAL_AFFAIRS_INTAKE_NORMALIZATION_BASE_URL=http://127.0.0.1:14000/v1
+PERSONAL_AFFAIRS_INTAKE_NORMALIZATION_MODEL=deepseek:deepseek-v4-flash
+PERSONAL_AFFAIRS_INTAKE_NORMALIZATION_API_KEY=<runtime-only LiteLLM key>
+```
+
+Agent rule: before choosing an LLM for parsing, proposals, summaries, meetings, risk review, or external formatting, call `pa_get_llm_binding(purpose_key=...)` through MCP and follow the returned profile, params, capabilities, auth reference, and instructions. Do not hard-code model names, base URLs, or provider-specific credentials.
+
+### Configuring external integrations (optional)
+
+Use **设置 → 外部集成** to register reusable external capability profiles and purpose bindings. A profile stores the provider/capability/auth reference (for example Feishu write, Webhook notify, calendar sync, or custom HTTP); a binding stores the concrete target reference, purpose key, scope, format key, field mapping, value mapping, conflict policy, dry-run flag, and Agent instructions. Built-in presets currently cover Feishu Base item writes, custom HTTP JSON, Webhook notifications, and calendar sync. The app stores only `auth_ref`; Feishu tokens, webhook credentials, and bridge secrets stay in the agent, n8n/activepieces bridge, runtime env, or secret store.
+
+Agent rule: before any external read/write/sync/notify operation, call `pa_resolve_external_bindings(purpose_key=...)` or `pa_list_external_bindings(active_only=true)` through MCP and follow each binding's `target_ref`, `format_key`, `field_mapping`, `value_mapping`, `conflict_policy`, `dry_run`, and `instructions`. Do not hard-code Feishu Base links, column names, webhook URLs, calendar IDs, or external provider credentials.
+
+### Configuring external write targets (legacy-compatible)
+
+Use **设置 → 写入目标** to register external table destinations for existing agents or automation bridges. The built-in preset is `feishu_bitable`: it stores the Feishu Base link, a format key, editable field mapping, and optional natural-language instructions. Users can override every field or create a `custom` target for other tables. This app stores no Feishu app secret or tenant token in write targets; credentials stay in the agent, n8n/activepieces bridge, or server-side runtime secret store.
+
+Agent rule: `pa_list_write_targets(active_only=true)` is kept for existing agents. New agents should prefer the external binding tools above; treat the Feishu preset as a default, not as hard-coded column names.
+
 Optional delivery adapters:
 
 - `PERSONAL_AFFAIRS_FEISHU_WEBHOOK_URL`

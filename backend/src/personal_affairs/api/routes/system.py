@@ -16,6 +16,6 @@ def ready() -> dict:
     cfg = get_settings()
     with connection(cfg) as conn:
         row = conn.execute(
-            "SELECT version FROM personal_affairs.schema_migrations ORDER BY applied_at DESC LIMIT 1"
+            "SELECT version FROM personal_affairs.schema_migrations ORDER BY version DESC LIMIT 1"
         ).fetchone()
     return {"status": "ready", "schema_version": row["version"] if row else None}

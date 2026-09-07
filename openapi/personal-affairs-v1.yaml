@@ -1,6 +1,6 @@
 openapi: 3.1.0
 info:
-  title: Personal Affairs API
+  title: EventFlowOS API
   version: 0.1.0
 servers:
   - url: /api/v1
@@ -68,6 +68,198 @@ paths:
       responses:
         '200': { description: OK }
         '401': { description: Authentication required }
+  /write-targets/presets:
+    get:
+      summary: List built-in write target presets, including Feishu Base defaults.
+      responses:
+        '200': { description: OK }
+        '401': { description: Authentication required }
+  /write-targets:
+    get:
+      summary: List user-configured external write targets for agents and automations.
+      responses:
+        '200': { description: OK }
+        '401': { description: Authentication required }
+    post:
+      summary: Create a write target with destination link, format key, field mapping, and agent instructions.
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+      responses:
+        '200': { description: OK }
+        '422': { description: Invalid target configuration }
+  /write-targets/{target_id}:
+    patch:
+      summary: Update a write target.
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+        - $ref: '#/components/parameters/WriteTargetId'
+      responses:
+        '200': { description: OK }
+        '404': { description: Not found }
+    delete:
+      summary: Delete a write target.
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+        - $ref: '#/components/parameters/WriteTargetId'
+      responses:
+        '204': { description: No content }
+        '404': { description: Not found }
+  /external-profiles/presets:
+    get:
+      summary: List built-in external profile presets.
+      responses:
+        '200': { description: OK }
+        '401': { description: Authentication required }
+  /external-profiles/purposes:
+    get:
+      summary: List built-in external purpose presets.
+      responses:
+        '200': { description: OK }
+        '401': { description: Authentication required }
+  /external-profiles:
+    get:
+      summary: List user-configured external capability profiles.
+      responses:
+        '200': { description: OK }
+        '401': { description: Authentication required }
+    post:
+      summary: Create an external capability profile.
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+      responses:
+        '200': { description: OK }
+        '422': { description: Invalid external profile configuration }
+  /external-profiles/{profile_id}:
+    patch:
+      summary: Update an external capability profile.
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+        - $ref: '#/components/parameters/ExternalProfileId'
+      responses:
+        '200': { description: OK }
+        '404': { description: Not found }
+    delete:
+      summary: Delete an external capability profile.
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+        - $ref: '#/components/parameters/ExternalProfileId'
+      responses:
+        '204': { description: No content }
+        '404': { description: Not found }
+  /external-bindings:
+    get:
+      summary: List external purpose bindings.
+      responses:
+        '200': { description: OK }
+        '401': { description: Authentication required }
+    post:
+      summary: Create an external purpose binding.
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+      responses:
+        '200': { description: OK }
+        '422': { description: Invalid external binding configuration }
+  /external-bindings/resolve:
+    get:
+      summary: Resolve active external bindings for a purpose and optional scope.
+      responses:
+        '200': { description: OK }
+        '401': { description: Authentication required }
+  /external-bindings/{binding_id}:
+    patch:
+      summary: Update an external purpose binding.
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+        - $ref: '#/components/parameters/ExternalBindingId'
+      responses:
+        '200': { description: OK }
+        '404': { description: Not found }
+    delete:
+      summary: Delete an external purpose binding.
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+        - $ref: '#/components/parameters/ExternalBindingId'
+      responses:
+        '204': { description: No content }
+        '404': { description: Not found }
+  /llm-profiles/presets:
+    get:
+      summary: List built-in LLM profile presets.
+      responses:
+        '200': { description: OK }
+        '401': { description: Authentication required }
+  /llm-profiles/purposes:
+    get:
+      summary: List built-in LLM purpose presets.
+      responses:
+        '200': { description: OK }
+        '401': { description: Authentication required }
+  /llm-profiles:
+    get:
+      summary: List user-configured LLM profiles.
+      responses:
+        '200': { description: OK }
+        '401': { description: Authentication required }
+    post:
+      summary: Create an LLM profile with provider, model, params, capabilities, and auth reference.
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+      responses:
+        '200': { description: OK }
+        '422': { description: Invalid LLM profile configuration }
+  /llm-profiles/{profile_id}:
+    patch:
+      summary: Update an LLM profile.
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+        - $ref: '#/components/parameters/LLMProfileId'
+      responses:
+        '200': { description: OK }
+        '404': { description: Not found }
+    delete:
+      summary: Delete an LLM profile.
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+        - $ref: '#/components/parameters/LLMProfileId'
+      responses:
+        '204': { description: No content }
+        '404': { description: Not found }
+  /llm-bindings:
+    get:
+      summary: List LLM purpose bindings.
+      responses:
+        '200': { description: OK }
+        '401': { description: Authentication required }
+    post:
+      summary: Create an LLM purpose binding for Agent/service model selection.
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+      responses:
+        '200': { description: OK }
+        '422': { description: Invalid LLM binding configuration }
+  /llm-bindings/resolve:
+    get:
+      summary: Resolve the active LLM binding for a purpose and optional scope.
+      responses:
+        '200': { description: OK }
+        '401': { description: Authentication required }
+  /llm-bindings/{binding_id}:
+    patch:
+      summary: Update an LLM purpose binding.
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+        - $ref: '#/components/parameters/LLMBindingId'
+      responses:
+        '200': { description: OK }
+        '404': { description: Not found }
+    delete:
+      summary: Delete an LLM purpose binding.
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+        - $ref: '#/components/parameters/LLMBindingId'
+      responses:
+        '204': { description: No content }
+        '404': { description: Not found }
   /agent-proposals:
     get:
       summary: List agent-generated proposals, pending by default.
@@ -75,9 +267,6 @@ paths:
         - in: query
           name: state
           schema: { type: string, enum: [pending, approved, edited_approved, rejected, ignored, expired] }
-        - in: query
-          name: limit
-          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
       responses:
         '200': { description: OK }
         '401': { description: Authentication required }
@@ -362,6 +551,31 @@ components:
       name: webhook_id
       required: true
       schema: { type: string, format: uuid }
+    WriteTargetId:
+      in: path
+      name: target_id
+      required: true
+      schema: { type: string, format: uuid }
+    ExternalProfileId:
+      in: path
+      name: profile_id
+      required: true
+      schema: { type: string, format: uuid }
+    ExternalBindingId:
+      in: path
+      name: binding_id
+      required: true
+      schema: { type: string, format: uuid }
+    LLMProfileId:
+      in: path
+      name: profile_id
+      required: true
+      schema: { type: string, format: uuid }
+    LLMBindingId:
+      in: path
+      name: binding_id
+      required: true
+      schema: { type: string, format: uuid }
     ProposalId:
       in: path
       name: proposal_id
@@ -387,3 +601,94 @@ components:
         code: { type: string }
         detail: { type: string }
         retryable: { type: boolean }
+    WriteTarget:
+      type: object
+      required: [id, name, target_type, target_url, format_key, field_mapping, active, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        target_type: { type: string, enum: [feishu_bitable, custom] }
+        target_url: { type: string }
+        format_key: { type: string, enum: [feishu_bitable_item_v1, compact_item_v1, custom_json_v1] }
+        field_mapping: { type: object, additionalProperties: { type: string } }
+        instructions: { type: string, nullable: true }
+        active: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ExternalProfile:
+      type: object
+      required: [id, name, provider_key, capability, active, priority, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        provider_key: { type: string, enum: [feishu, webhook, notion, calendar, custom_http] }
+        preset_key: { type: string, nullable: true }
+        capability: { type: string, enum: [write, read, sync, notify, lookup, export] }
+        auth_ref: { type: string, nullable: true }
+        active: { type: boolean }
+        priority: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ExternalBinding:
+      type: object
+      required: [id, profile_id, purpose_key, scope_type, target_ref, format_key, field_mapping, value_mapping, conflict_policy, dry_run, active, priority, created_at, updated_at, profile_name, provider_key, capability]
+      properties:
+        id: { type: string, format: uuid }
+        profile_id: { type: string, format: uuid }
+        purpose_key: { type: string }
+        scope_type: { type: string, enum: [global, project, item_type, source_type, person, tag] }
+        scope_value: { type: string, nullable: true }
+        target_ref: { type: string }
+        format_key: { type: string, enum: [feishu_bitable_item_v1, custom_json_v1, webhook_notification_v1, calendar_event_v1, notion_database_item_v1] }
+        field_mapping: { type: object }
+        value_mapping: { type: object }
+        instructions: { type: string, nullable: true }
+        conflict_policy: { type: string, enum: [append, update, skip, ask] }
+        dry_run: { type: boolean }
+        active: { type: boolean }
+        priority: { type: integer }
+        last_used_at: { type: string, format: date-time, nullable: true }
+        last_error: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        profile_name: { type: string }
+        provider_key: { type: string, enum: [feishu, webhook, notion, calendar, custom_http] }
+        preset_key: { type: string, nullable: true }
+        capability: { type: string, enum: [write, read, sync, notify, lookup, export] }
+        auth_ref: { type: string, nullable: true }
+    LLMProfile:
+      type: object
+      required: [id, name, provider_key, model_name, capabilities, default_params, privacy_tier, active, priority, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        provider_key: { type: string, enum: [litellm, openai_compatible, ollama, custom] }
+        preset_key: { type: string, nullable: true }
+        base_url: { type: string, nullable: true }
+        model_name: { type: string }
+        auth_ref: { type: string, nullable: true }
+        capabilities: { type: object }
+        default_params: { type: object }
+        privacy_tier: { type: string, enum: [standard, private, sensitive] }
+        active: { type: boolean }
+        priority: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    LLMBinding:
+      type: object
+      required: [id, purpose_key, scope_type, profile_id, override_params, active, priority, created_at, updated_at, profile_name, provider_key, model_name]
+      properties:
+        id: { type: string, format: uuid }
+        purpose_key: { type: string }
+        scope_type: { type: string, enum: [global, project, source_type, item_type, risk_tier] }
+        scope_value: { type: string, nullable: true }
+        profile_id: { type: string, format: uuid }
+        override_params: { type: object }
+        instructions: { type: string, nullable: true }
+        active: { type: boolean }
+        priority: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        profile_name: { type: string }
+        provider_key: { type: string, enum: [litellm, openai_compatible, ollama, custom] }
+        model_name: { type: string }

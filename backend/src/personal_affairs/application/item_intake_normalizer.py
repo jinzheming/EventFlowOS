@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -12,11 +13,13 @@ from zoneinfo import ZoneInfo
 import httpx
 from psycopg import Connection
 
+from personal_affairs.application.llm_profiles import merge_llm_params
 from personal_affairs.config import Settings
 from personal_affairs.domain.enums import ItemScope, ItemStatus, Priority
 from personal_affairs.domain.errors import DomainError
 from personal_affairs.domain.models import ItemSchedule
 from personal_affairs.domain.policies import validate_schedule
+from personal_affairs.storage.repositories.llm_profiles import LLMProfilesRepository
 from personal_affairs.storage.repositories.people import PeopleRepository
 from personal_affairs.storage.repositories.projects import ProjectsRepository
 from personal_affairs.storage.repositories.tags import TagsRepository
@@ -42,6 +45,16 @@ class IntakeContext:
     projects: list[dict[str, Any]]
     people: list[dict[str, Any]]
     tags: list[dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class LLMRuntimeConfig:
+    base_url: str
+    model_name: str
+    api_key: str | None
+    params: dict[str, Any]
+    timeout_seconds: float
+    min_confidence: float
 
 
 def _clean_name(value: Any) -> str:
@@ -81,6 +94,14 @@ def _confidence(data: dict[str, Any]) -> float:
         return float(data.get("confidence", 0.0))
     except (TypeError, ValueError):
         return 0.0
+
+
+def _positive_float(value: Any, fallback: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    return parsed if parsed > 0 else fallback
 
 
 def _positive_int(data: dict[str, Any], key: str, upper: int) -> int | None:
@@ -323,23 +344,82 @@ class ItemIntakeNormalizer:
     def normalize(self, user_id: UUID, conn: Connection, payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
         stripped = {key: value for key, value in payload.items() if key not in _META_KEYS}
         source_text = str(payload.get("intake_text") or payload.get("title") or "").strip()
-        if not self.settings.intake_normalization_enabled or not source_text:
+        if not source_text:
             return stripped, None
-        if not self.settings.intake_normalization_api_key or not self.settings.intake_normalization_base_url:
+        runtime = self._runtime_config(user_id, conn)
+        if runtime is None:
             return stripped, None
         try:
             context = self._context(user_id, conn)
-            suggestion = self._request_suggestion(source_text, payload, context)
+            suggestion = self._request_suggestion(source_text, payload, context, runtime)
             return apply_item_intake_suggestion(
                 payload,
                 suggestion,
                 context,
-                model=self.settings.intake_normalization_model,
-                min_confidence=self.settings.intake_normalization_min_confidence,
+                model=runtime.model_name,
+                min_confidence=runtime.min_confidence,
             )
         except Exception as exc:  # pragma: no cover - defensive runtime fallback
             logger.warning("item intake normalization skipped after %s", exc.__class__.__name__)
             return stripped, None
+
+    def _runtime_config(self, user_id: UUID, conn: Connection) -> LLMRuntimeConfig | None:
+        try:
+            binding = LLMProfilesRepository(conn).resolve_binding(user_id, "intake_normalization")
+        except Exception as exc:  # pragma: no cover - deployment-order fallback
+            logger.warning("LLM binding lookup skipped after %s", exc.__class__.__name__)
+            conn.rollback()
+            binding = None
+        if binding:
+            params = merge_llm_params(binding.get("default_params"), binding.get("override_params"))
+            timeout_seconds = _positive_float(
+                params.pop("timeout_seconds", None),
+                self.settings.intake_normalization_timeout_seconds,
+            )
+            min_confidence = _positive_float(
+                params.pop("min_confidence", None),
+                self.settings.intake_normalization_min_confidence,
+            )
+            api_key = self._api_key_for_auth_ref(binding.get("auth_ref"), binding.get("provider_key"))
+            if binding.get("auth_ref") not in {"none", "no_auth"} and not api_key:
+                return None
+            base_url = str(binding.get("base_url") or self.settings.intake_normalization_base_url or "").strip()
+            model_name = str(binding.get("model_name") or "").strip()
+            if not base_url or not model_name:
+                return None
+            return LLMRuntimeConfig(
+                base_url=base_url,
+                model_name=model_name,
+                api_key=api_key,
+                params=params,
+                timeout_seconds=timeout_seconds,
+                min_confidence=min_confidence,
+            )
+
+        if not self.settings.intake_normalization_enabled:
+            return None
+        if not self.settings.intake_normalization_base_url or not self.settings.intake_normalization_model:
+            return None
+        if not self.settings.intake_normalization_api_key:
+            return None
+        return LLMRuntimeConfig(
+            base_url=self.settings.intake_normalization_base_url,
+            model_name=self.settings.intake_normalization_model,
+            api_key=self.settings.intake_normalization_api_key,
+            params={"temperature": 0, "response_format": {"type": "json_object"}},
+            timeout_seconds=self.settings.intake_normalization_timeout_seconds,
+            min_confidence=self.settings.intake_normalization_min_confidence,
+        )
+
+    def _api_key_for_auth_ref(self, auth_ref: str | None, provider_key: str | None) -> str | None:
+        ref = str(auth_ref or "").strip()
+        if ref in {"none", "no_auth"} or (provider_key == "ollama" and not ref):
+            return None
+        if ref in {"", "runtime_default", "intake_normalization_api_key"}:
+            return self.settings.intake_normalization_api_key
+        if ref.startswith("env:"):
+            return os.environ.get(ref.removeprefix("env:"))
+        return os.environ.get(ref) or self.settings.intake_normalization_api_key
 
     def _context(self, user_id: UUID, conn: Connection) -> IntakeContext:
         now = datetime.now(ZoneInfo(self.settings.default_timezone)).isoformat()
@@ -357,38 +437,48 @@ class ItemIntakeNormalizer:
             tags=[{"id": row["id"], "name": row["name"]} for row in TagsRepository(conn).list_tags(user_id)],
         )
 
-    def _request_suggestion(self, source_text: str, payload: dict[str, Any], context: IntakeContext) -> dict[str, Any]:
+    def _request_suggestion(
+        self,
+        source_text: str,
+        payload: dict[str, Any],
+        context: IntakeContext,
+        runtime: LLMRuntimeConfig,
+    ) -> dict[str, Any]:
         body = {
-            "model": self.settings.intake_normalization_model,
+            "model": runtime.model_name,
             "temperature": 0,
             "response_format": {"type": "json_object"},
-            "messages": [
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": json.dumps(
-                        {
-                            "source_text": source_text,
-                            "current_payload": _json_safe_payload(payload),
-                            "timezone": context.timezone,
-                            "now": context.now,
-                            "projects": [{"id": str(p["id"]), "name": p["name"]} for p in context.projects],
-                            "people": [{"id": str(p["id"]), "name": p["name"], "identity": p.get("identity")} for p in context.people],
-                            "tags": [{"id": str(t["id"]), "name": t["name"]} for t in context.tags],
-                        },
-                        ensure_ascii=False,
-                        default=str,
-                    ),
-                },
-            ],
         }
-        url = f"{self.settings.intake_normalization_base_url.rstrip('/')}/chat/completions"
-        headers = {"authorization": f"Bearer {self.settings.intake_normalization_api_key}"}
+        body.update({key: value for key, value in runtime.params.items() if key not in {"model", "messages"}})
+        body["messages"] = [
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {
+                        "source_text": source_text,
+                        "current_payload": _json_safe_payload(payload),
+                        "timezone": context.timezone,
+                        "now": context.now,
+                        "projects": [{"id": str(p["id"]), "name": p["name"]} for p in context.projects],
+                        "people": [
+                            {"id": str(p["id"]), "name": p["name"], "identity": p.get("identity")}
+                            for p in context.people
+                        ],
+                        "tags": [{"id": str(t["id"]), "name": t["name"]} for t in context.tags],
+                    },
+                    ensure_ascii=False,
+                    default=str,
+                ),
+            },
+        ]
+        url = f"{runtime.base_url.rstrip('/')}/chat/completions"
+        headers = {"authorization": f"Bearer {runtime.api_key}"} if runtime.api_key else {}
         if self.client:
-            response = self.client.post(url, headers=headers, json=body, timeout=self.settings.intake_normalization_timeout_seconds)
+            response = self.client.post(url, headers=headers, json=body, timeout=runtime.timeout_seconds)
         else:
             with httpx.Client() as client:
-                response = client.post(url, headers=headers, json=body, timeout=self.settings.intake_normalization_timeout_seconds)
+                response = client.post(url, headers=headers, json=body, timeout=runtime.timeout_seconds)
         response.raise_for_status()
         content = response.json()["choices"][0]["message"]["content"]
         return _loads_json_object(content)

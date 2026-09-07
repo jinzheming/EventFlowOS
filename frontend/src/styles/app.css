@@ -764,6 +764,7 @@ textarea:focus {
   padding: 14px;
 }
 
+
 .personal-row:not(.item-row) {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) minmax(130px, auto);
@@ -4271,7 +4272,7 @@ button.health-strip {
 }
 
 
-/* === P10: MCP / Webhook 页 === */
+/* === P10: MCP / Webhook / 写入目标 / 外部集成 / AI 模型页 === */
 .endpoint-row {
   display: flex;
   align-items: center;
@@ -4307,6 +4308,31 @@ button.health-strip {
 
 .form-grid .primary {
   justify-self: end;
+}
+
+.write-target-form textarea,
+.write-target-form .panel-actions,
+.external-profile-form textarea,
+.external-profile-form .panel-actions,
+.llm-profile-form textarea,
+.llm-profile-form .panel-actions {
+  grid-column: 1 / -1;
+}
+
+.write-target-form textarea,
+.external-profile-form textarea,
+.llm-profile-form textarea {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.write-target-form .toggle-line,
+.external-profile-form .toggle-line,
+.llm-profile-form .toggle-line {
+  justify-content: flex-start;
 }
 
 .secret-reveal {

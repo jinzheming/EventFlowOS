@@ -2,8 +2,14 @@ from datetime import date, datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from personal_affairs.application.external_profiles import (
+    normalize_external_binding,
+    normalize_external_profile,
+)
+from personal_affairs.application.llm_profiles import normalize_llm_binding, normalize_llm_profile
+from personal_affairs.application.write_targets import normalize_write_target
 from personal_affairs.domain.enums import (
     ActorType,
     AgentProposalAction,
@@ -108,6 +114,380 @@ class WebhookEventOut(BaseModel):
     last_error_message: str | None = None
 
 
+WriteTargetType = Literal["feishu_bitable", "custom"]
+
+
+class WriteTargetPresetOut(BaseModel):
+    target_type: WriteTargetType
+    label: str
+    format_key: str
+    field_mapping: dict[str, str]
+    description: str
+
+
+class WriteTargetCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    target_type: WriteTargetType = "feishu_bitable"
+    target_url: str = Field(min_length=1, max_length=2000)
+    format_key: str | None = Field(default=None, max_length=120)
+    field_mapping: dict[str, Any] = Field(default_factory=dict)
+    instructions: str | None = Field(default=None, max_length=2000)
+    active: bool = True
+
+    @model_validator(mode="after")
+    def normalize_mapping(self) -> "WriteTargetCreate":
+        self.format_key, self.field_mapping = normalize_write_target(
+            self.target_type,
+            self.format_key,
+            self.field_mapping,
+        )
+        return self
+
+
+class WriteTargetPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    target_type: WriteTargetType | None = None
+    target_url: str | None = Field(default=None, min_length=1, max_length=2000)
+    format_key: str | None = Field(default=None, max_length=120)
+    field_mapping: dict[str, Any] | None = None
+    instructions: str | None = Field(default=None, max_length=2000)
+    active: bool | None = None
+
+
+class WriteTargetOut(BaseModel):
+    id: UUID
+    name: str
+    target_type: WriteTargetType
+    target_url: str
+    format_key: str
+    field_mapping: dict[str, str]
+    instructions: str | None = None
+    active: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+ExternalProviderKey = Literal["feishu", "webhook", "notion", "calendar", "custom_http"]
+ExternalCapability = Literal["write", "read", "sync", "notify", "lookup", "export"]
+ExternalScopeType = Literal["global", "project", "item_type", "source_type", "person", "tag"]
+ExternalConflictPolicy = Literal["append", "update", "skip", "ask"]
+
+
+class ExternalProfilePresetOut(BaseModel):
+    preset_key: str
+    label: str
+    provider_key: ExternalProviderKey
+    capability: ExternalCapability
+    auth_ref: str | None = None
+    default_format_key: str
+    default_field_mapping: dict[str, Any]
+    description: str
+
+
+class ExternalPurposePresetOut(BaseModel):
+    purpose_key: str
+    label: str
+    capabilities: list[ExternalCapability]
+    description: str
+
+
+class ExternalProfileCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    provider_key: ExternalProviderKey = "feishu"
+    preset_key: str | None = Field(default=None, max_length=120)
+    capability: ExternalCapability = "write"
+    auth_ref: str | None = Field(default=None, max_length=240)
+    active: bool = True
+    priority: int = Field(default=100, ge=0, le=10000)
+
+    @model_validator(mode="after")
+    def normalize_profile(self) -> "ExternalProfileCreate":
+        normalized = normalize_external_profile(
+            self.provider_key,
+            self.capability,
+            preset_key=self.preset_key,
+            auth_ref=self.auth_ref,
+        )
+        self.provider_key = normalized["provider_key"]
+        self.capability = normalized["capability"]
+        self.preset_key = normalized["preset_key"]
+        self.auth_ref = normalized["auth_ref"]
+        return self
+
+
+class ExternalProfilePatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    provider_key: ExternalProviderKey | None = None
+    preset_key: str | None = Field(default=None, max_length=120)
+    capability: ExternalCapability | None = None
+    auth_ref: str | None = Field(default=None, max_length=240)
+    active: bool | None = None
+    priority: int | None = Field(default=None, ge=0, le=10000)
+
+
+class ExternalProfileOut(BaseModel):
+    id: UUID
+    name: str
+    provider_key: ExternalProviderKey
+    preset_key: str | None = None
+    capability: ExternalCapability
+    auth_ref: str | None = None
+    active: bool
+    priority: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class ExternalBindingCreate(BaseModel):
+    profile_id: UUID
+    purpose_key: str = Field(min_length=1, max_length=120)
+    scope_type: ExternalScopeType = "global"
+    scope_value: str | None = Field(default=None, max_length=240)
+    target_ref: str = Field(min_length=1, max_length=2000)
+    format_key: str = Field(min_length=1, max_length=120)
+    field_mapping: dict[str, Any] = Field(default_factory=dict)
+    value_mapping: dict[str, Any] = Field(default_factory=dict)
+    instructions: str | None = Field(default=None, max_length=2000)
+    conflict_policy: ExternalConflictPolicy = "ask"
+    dry_run: bool = False
+    active: bool = True
+    priority: int = Field(default=100, ge=0, le=10000)
+
+    @model_validator(mode="after")
+    def normalize_binding(self) -> "ExternalBindingCreate":
+        normalized = normalize_external_binding(
+            self.purpose_key,
+            self.scope_type,
+            self.target_ref,
+            self.format_key,
+            scope_value=self.scope_value,
+            field_mapping=self.field_mapping,
+            value_mapping=self.value_mapping,
+            instructions=self.instructions,
+            conflict_policy=self.conflict_policy,
+        )
+        self.purpose_key = normalized["purpose_key"]
+        self.scope_type = normalized["scope_type"]
+        self.scope_value = normalized["scope_value"]
+        self.target_ref = normalized["target_ref"]
+        self.format_key = normalized["format_key"]
+        self.field_mapping = normalized["field_mapping"]
+        self.value_mapping = normalized["value_mapping"]
+        self.instructions = normalized["instructions"]
+        self.conflict_policy = normalized["conflict_policy"]
+        return self
+
+
+class ExternalBindingPatch(BaseModel):
+    profile_id: UUID | None = None
+    purpose_key: str | None = Field(default=None, min_length=1, max_length=120)
+    scope_type: ExternalScopeType | None = None
+    scope_value: str | None = Field(default=None, max_length=240)
+    target_ref: str | None = Field(default=None, min_length=1, max_length=2000)
+    format_key: str | None = Field(default=None, min_length=1, max_length=120)
+    field_mapping: dict[str, Any] | None = None
+    value_mapping: dict[str, Any] | None = None
+    instructions: str | None = Field(default=None, max_length=2000)
+    conflict_policy: ExternalConflictPolicy | None = None
+    dry_run: bool | None = None
+    active: bool | None = None
+    priority: int | None = Field(default=None, ge=0, le=10000)
+
+
+class ExternalBindingOut(BaseModel):
+    id: UUID
+    profile_id: UUID
+    purpose_key: str
+    scope_type: ExternalScopeType
+    scope_value: str | None = None
+    target_ref: str
+    format_key: str
+    field_mapping: dict[str, Any]
+    value_mapping: dict[str, Any]
+    instructions: str | None = None
+    conflict_policy: ExternalConflictPolicy
+    dry_run: bool
+    active: bool
+    priority: int
+    last_used_at: datetime | None = None
+    last_error: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    profile_name: str
+    provider_key: ExternalProviderKey
+    preset_key: str | None = None
+    capability: ExternalCapability
+    auth_ref: str | None = None
+
+
+LLMProviderKey = Literal["litellm", "openai_compatible", "ollama", "custom"]
+LLMScopeType = Literal["global", "project", "source_type", "item_type", "risk_tier"]
+LLMPrivacyTier = Literal["standard", "private", "sensitive"]
+
+
+class LLMProfilePresetOut(BaseModel):
+    preset_key: str
+    label: str
+    provider_key: LLMProviderKey
+    base_url: str | None = None
+    model_name: str
+    auth_ref: str | None = None
+    capabilities: dict[str, Any]
+    default_params: dict[str, Any]
+    privacy_tier: LLMPrivacyTier
+    description: str
+
+
+class LLMPurposePresetOut(BaseModel):
+    purpose_key: str
+    label: str
+    required_capabilities: list[str]
+    description: str
+
+
+class LLMProfileCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    provider_key: LLMProviderKey = "litellm"
+    preset_key: str | None = Field(default=None, max_length=120)
+    base_url: str | None = Field(default=None, max_length=2000)
+    model_name: str = Field(min_length=1, max_length=240)
+    auth_ref: str | None = Field(default=None, max_length=240)
+    capabilities: dict[str, Any] = Field(default_factory=dict)
+    default_params: dict[str, Any] = Field(default_factory=dict)
+    privacy_tier: LLMPrivacyTier = "standard"
+    active: bool = True
+    priority: int = Field(default=100, ge=0, le=10000)
+
+    @model_validator(mode="after")
+    def normalize_profile(self) -> "LLMProfileCreate":
+        normalized = normalize_llm_profile(
+            self.provider_key,
+            self.model_name,
+            preset_key=self.preset_key,
+            base_url=self.base_url,
+            auth_ref=self.auth_ref,
+            capabilities=self.capabilities,
+            default_params=self.default_params,
+            privacy_tier=self.privacy_tier,
+        )
+        self.provider_key = normalized["provider_key"]
+        self.preset_key = normalized["preset_key"]
+        self.base_url = normalized["base_url"]
+        self.model_name = normalized["model_name"]
+        self.auth_ref = normalized["auth_ref"]
+        self.capabilities = normalized["capabilities"]
+        self.default_params = normalized["default_params"]
+        self.privacy_tier = normalized["privacy_tier"]
+        return self
+
+
+class LLMProfilePatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    provider_key: LLMProviderKey | None = None
+    preset_key: str | None = Field(default=None, max_length=120)
+    base_url: str | None = Field(default=None, max_length=2000)
+    model_name: str | None = Field(default=None, min_length=1, max_length=240)
+    auth_ref: str | None = Field(default=None, max_length=240)
+    capabilities: dict[str, Any] | None = None
+    default_params: dict[str, Any] | None = None
+    privacy_tier: LLMPrivacyTier | None = None
+    active: bool | None = None
+    priority: int | None = Field(default=None, ge=0, le=10000)
+
+
+class LLMProfileOut(BaseModel):
+    id: UUID
+    name: str
+    provider_key: LLMProviderKey
+    preset_key: str | None = None
+    base_url: str | None = None
+    model_name: str
+    auth_ref: str | None = None
+    capabilities: dict[str, Any]
+    default_params: dict[str, Any]
+    privacy_tier: LLMPrivacyTier
+    active: bool
+    priority: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class LLMBindingCreate(BaseModel):
+    purpose_key: str = Field(min_length=1, max_length=120)
+    scope_type: LLMScopeType = "global"
+    scope_value: str | None = Field(default=None, max_length=240)
+    profile_id: UUID
+    override_params: dict[str, Any] = Field(default_factory=dict)
+    instructions: str | None = Field(default=None, max_length=2000)
+    active: bool = True
+    priority: int = Field(default=100, ge=0, le=10000)
+
+    @model_validator(mode="after")
+    def normalize_binding(self) -> "LLMBindingCreate":
+        normalized = normalize_llm_binding(
+            self.purpose_key,
+            self.scope_type,
+            scope_value=self.scope_value,
+            override_params=self.override_params,
+            instructions=self.instructions,
+        )
+        self.purpose_key = normalized["purpose_key"]
+        self.scope_type = normalized["scope_type"]
+        self.scope_value = normalized["scope_value"]
+        self.override_params = normalized["override_params"]
+        self.instructions = normalized["instructions"]
+        return self
+
+
+class LLMBindingPatch(BaseModel):
+    purpose_key: str | None = Field(default=None, min_length=1, max_length=120)
+    scope_type: LLMScopeType | None = None
+    scope_value: str | None = Field(default=None, max_length=240)
+    profile_id: UUID | None = None
+    override_params: dict[str, Any] | None = None
+    instructions: str | None = Field(default=None, max_length=2000)
+    active: bool | None = None
+    priority: int | None = Field(default=None, ge=0, le=10000)
+
+
+class LLMBindingOut(BaseModel):
+    id: UUID
+    purpose_key: str
+    scope_type: LLMScopeType
+    scope_value: str | None = None
+    profile_id: UUID
+    override_params: dict[str, Any]
+    instructions: str | None = None
+    active: bool
+    priority: int
+    created_at: datetime
+    updated_at: datetime
+    profile_name: str
+    provider_key: LLMProviderKey
+    model_name: str
+
+
+class LLMResolvedBindingOut(BaseModel):
+    binding_id: UUID
+    purpose_key: str
+    scope_type: LLMScopeType
+    scope_value: str | None = None
+    override_params: dict[str, Any]
+    binding_instructions: str | None = None
+    binding_priority: int
+    profile_id: UUID
+    profile_name: str
+    provider_key: LLMProviderKey
+    preset_key: str | None = None
+    base_url: str | None = None
+    model_name: str
+    auth_ref: str | None = None
+    capabilities: dict[str, Any]
+    default_params: dict[str, Any]
+    privacy_tier: LLMPrivacyTier
+    profile_priority: int
+
+
 class ItemPersonInput(BaseModel):
     person_id: UUID
     role: Literal["together", "waiting"]
@@ -210,6 +590,14 @@ class ItemOut(BaseModel):
     updated_at: datetime
     tags: list["ItemTagOut"] = []
     people: list["ItemPersonOut"] = []
+
+
+class ItemPageOut(BaseModel):
+    items: list[ItemOut]
+    total: int
+    limit: int
+    offset: int
+    has_more: bool
 
 
 class ItemTagOut(BaseModel):

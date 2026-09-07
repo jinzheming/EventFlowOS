@@ -13,10 +13,12 @@ from personal_affairs.api.routes import (
     auth,
     calendar,
     export,
+    external_profiles,
     focus,
     habits,
     integrations_feishu,
     items,
+    llm_profiles,
     people,
     preferences,
     project_groups,
@@ -27,6 +29,7 @@ from personal_affairs.api.routes import (
     system,
     tags,
     webhooks,
+    write_targets,
 )
 from personal_affairs.config import Settings, get_settings
 from personal_affairs.domain.errors import DomainError
@@ -94,11 +97,13 @@ def create_app() -> FastAPI:
     app.include_router(agent_proposals.router, prefix="/api/v1")
     app.include_router(integrations_feishu.router, prefix="/api/v1")
     app.include_router(items.router, prefix="/api/v1")
+    app.include_router(llm_profiles.router, prefix="/api/v1")
     app.include_router(focus.router, prefix="/api/v1")
     app.include_router(habits.router, prefix="/api/v1")
     app.include_router(projects.router, prefix="/api/v1")
     app.include_router(project_groups.router, prefix="/api/v1")
     app.include_router(calendar.router, prefix="/api/v1")
+    app.include_router(external_profiles.router, prefix="/api/v1")
     app.include_router(reminders.router, prefix="/api/v1")
     app.include_router(preferences.router, prefix="/api/v1")
     app.include_router(tags.router, prefix="/api/v1")
@@ -107,6 +112,7 @@ def create_app() -> FastAPI:
     app.include_router(export.router, prefix="/api/v1")
     app.include_router(push.router, prefix="/api/v1")
     app.include_router(webhooks.router, prefix="/api/v1")
+    app.include_router(write_targets.router, prefix="/api/v1")
     return app
 
 
