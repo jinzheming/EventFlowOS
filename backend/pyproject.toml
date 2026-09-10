@@ -1,7 +1,7 @@
 [project]
 name = "personal-affairs"
 version = "0.1.0"
-description = "Self-hosted personal affairs manager API and reminder worker."
+description = "Self-hosted EventFlowOS API and reminder worker."
 requires-python = ">=3.12,<3.13"
 dependencies = [
   "argon2-cffi>=23.1.0,<24.0.0",

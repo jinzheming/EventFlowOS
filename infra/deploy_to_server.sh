@@ -83,6 +83,6 @@ done
 curl -fsS http://127.0.0.1:18098/api/v1/health >/dev/null
 curl -fsS "$TASK_WEB_HEALTH_URL" >/dev/null
 
-echo "Personal affairs service deployed and health checks passed."
+echo "EventFlowOS service deployed and health checks passed."
 echo "API image: $PERSONAL_AFFAIRS_API_IMAGE"
 echo "Web image: $PERSONAL_AFFAIRS_WEB_IMAGE"

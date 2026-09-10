@@ -18,6 +18,7 @@ from personal_affairs.domain.enums import (
     AgentProposalState,
     DeliveryChannel,
     DeliveryStatus,
+    EventFormat,
     ItemScope,
     ItemStatus,
     MilestoneStatus,
@@ -513,6 +514,9 @@ class ItemBase(BaseModel):
     due_at: datetime | None = None
     start_date: date | None = None
     due_date: date | None = None
+    event_format: EventFormat | None = None
+    event_location: str | None = Field(default=None, max_length=500)
+    event_url: str | None = Field(default=None, max_length=2000)
     waiting_on: str | None = Field(default=None, max_length=300)
     waiting_follow_up_date: date | None = None
     recurrence_freq: Literal["daily", "weekly", "monthly"] | None = None
@@ -543,6 +547,9 @@ class ItemPatch(BaseModel):
     due_at: datetime | None = None
     start_date: date | None = None
     due_date: date | None = None
+    event_format: EventFormat | None = None
+    event_location: str | None = Field(default=None, max_length=500)
+    event_url: str | None = Field(default=None, max_length=2000)
     waiting_on: str | None = Field(default=None, max_length=300)
     waiting_follow_up_date: date | None = None
     recurrence_freq: Literal["daily", "weekly", "monthly"] | None = None
@@ -570,6 +577,9 @@ class ItemOut(BaseModel):
     due_at: datetime | None
     start_date: date | None
     due_date: date | None
+    event_format: str | None = None
+    event_location: str | None = None
+    event_url: str | None = None
     waiting_on: str | None
     waiting_follow_up_date: date | None
     recurrence_freq: str | None
@@ -845,6 +855,9 @@ class CalendarEventOut(BaseModel):
     project_id: UUID | None = None
     status: str
     color: str
+    event_format: str | None = None
+    event_location: str | None = None
+    event_url: str | None = None
 
 
 class DeliveryOut(BaseModel):

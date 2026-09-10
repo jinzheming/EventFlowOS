@@ -1,5 +1,7 @@
 export type Scope = 'work' | 'personal';
 export type ItemStatus = 'inbox' | 'planned' | 'in_progress' | 'waiting' | 'done' | 'cancelled';
+export type ItemHistoryView = 'done' | 'archived';
+export type EventFormat = 'online' | 'offline' | 'hybrid';
 export type Priority = 'low' | 'normal' | 'high' | 'urgent';
 export type ProjectStatus = 'planned' | 'active' | 'on_hold' | 'completed' | 'cancelled';
 export type ProjectHealth = 'unknown' | 'on_track' | 'at_risk' | 'blocked';
@@ -344,6 +346,9 @@ export interface Item {
   due_at: string | null;
   start_date: string | null;
   due_date: string | null;
+  event_format: EventFormat | null;
+  event_location: string | null;
+  event_url: string | null;
   waiting_on: string | null;
   waiting_follow_up_date: string | null;
   recurrence_freq: 'daily' | 'weekly' | 'monthly' | null;
@@ -366,6 +371,13 @@ export interface Item {
   people: ItemPerson[];
 }
 
+export interface ItemHistoryPage {
+  items: Item[];
+  total: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+}
 
 export type ItemPayload = Omit<Partial<Item>, 'people'> & {
   tag_ids?: string[] | null;
@@ -517,6 +529,9 @@ export interface CalendarEvent {
   project_id: string | null;
   status: string;
   color: string;
+  event_format: EventFormat | null;
+  event_location: string | null;
+  event_url: string | null;
 }
 
 export interface Reminder {
@@ -676,10 +691,15 @@ export const api = {
     request<LLMBinding>(`/llm-bindings/${bindingId}`, { method: 'PATCH', body: JSON.stringify(payload) }, csrf),
   deleteLLMBinding: (csrf: string, bindingId: string) =>
     request<void>(`/llm-bindings/${bindingId}`, { method: 'DELETE' }, csrf),
-  items: (scope: Scope, includeArchived = false, search = '') =>
+  items: (scope: Scope, includeArchived = false, search = '', limit = 100) =>
     request<Item[]>(
-      `/items?scope=${scope}&include_archived=${includeArchived}${search ? `&search=${encodeURIComponent(search)}` : ''}`,
+      `/items?scope=${scope}&include_archived=${includeArchived}&limit=${limit}${search ? `&search=${encodeURIComponent(search)}` : ''}`,
     ),
+  historyItems: (scope: Scope, view: ItemHistoryView, search = '', limit = 30, offset = 0) => {
+    const query = new URLSearchParams({ scope, view, limit: String(limit), offset: String(offset) });
+    if (search.trim()) query.set('search', search.trim());
+    return request<ItemHistoryPage>(`/items/history?${query.toString()}`);
+  },
   agentProposals: (state: AgentProposalState = 'pending') =>
     request<AgentProposal[]>(`/agent-proposals?state=${state}&limit=500`),
   approveProposal: (csrf: string, proposalId: string, payload: { edited_payload?: Record<string, unknown>; decision_note?: string | null } = {}) =>

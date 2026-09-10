@@ -510,7 +510,7 @@ def _loads_json_object(content: str) -> dict[str, Any]:
     return parsed
 
 
-_SYSTEM_PROMPT = """你是 Personal Affairs 新建事项归一化器。只返回 JSON 对象，不要解释。
+_SYSTEM_PROMPT = """你是 EventFlowOS 新建事项归一化器。只返回 JSON 对象，不要解释。
 
 目标：把自由文本事项归一化为结构化字段。你是信息抽取器，不是任务规划器。
 

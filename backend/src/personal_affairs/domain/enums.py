@@ -22,6 +22,12 @@ class Priority(StrEnum):
     URGENT = "urgent"
 
 
+class EventFormat(StrEnum):
+    ONLINE = "online"
+    OFFLINE = "offline"
+    HYBRID = "hybrid"
+
+
 class ProjectStatus(StrEnum):
     PLANNED = "planned"
     ACTIVE = "active"

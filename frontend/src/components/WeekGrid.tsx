@@ -1,6 +1,7 @@
 import { DragEvent, PointerEvent as ReactPointerEvent, useRef, useState } from 'react';
 import { CalendarEvent } from '../api/client';
 import { formatScheduleTime, todayString } from '../lib/dates';
+import { eventFormatLabels } from '../lib/labels';
 import { HOUR_HEIGHT, WEEKDAY_LABELS, WEEK_END_HOUR, WEEK_START_HOUR, WeekDayBucket, eventDurationMinutes, snap15 } from '../lib/week';
 
 const HOURS = Array.from({ length: WEEK_END_HOUR - WEEK_START_HOUR }, (_, index) => WEEK_START_HOUR + index);
@@ -165,7 +166,7 @@ export function WeekGrid({
                 draggable={dragEnabled && event.kind !== 'milestone' && event.status !== 'done'}
                 onDragStart={(dragEvent) => dragStart(dragEvent, event)}
                 onClick={() => event.kind !== 'milestone' && onOpenItem(event.source_id)}
-                title={event.kind === 'milestone' ? `里程碑：${event.title}` : event.title}
+                title={calendarEventTitle(event)}
               >
                 {event.kind === 'milestone' ? '◆ ' : ''}
                 {event.title}
@@ -206,7 +207,7 @@ export function WeekGrid({
                   onDragStart={(dragEvent) => dragStart(dragEvent, layout.event)}
                   onDragEnd={() => setPreview(null)}
                   onClick={() => layout.event.kind !== 'milestone' && onOpenItem(layout.event.source_id)}
-                  title={layout.event.title}
+                  title={calendarEventTitle(layout.event)}
                 >
                   {interactive && (
                     <span
@@ -239,4 +240,15 @@ export function WeekGrid({
       )}
     </div>
   );
+}
+
+function calendarEventTitle(event: CalendarEvent) {
+  return [
+    event.kind === 'milestone' ? `里程碑：${event.title}` : event.title,
+    event.event_format ? eventFormatLabels[event.event_format] : '',
+    event.event_location,
+    event.event_url,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 }

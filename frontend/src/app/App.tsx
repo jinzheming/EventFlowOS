@@ -48,7 +48,7 @@ const navItems: Array<{ page: Page; label: string; icon: typeof Home; group: Nav
   { page: 'today', label: '今日', icon: Home, group: '工作台' },
   { page: 'inbox', label: '收集箱', icon: Inbox, group: '工作台' },
   { page: 'work', label: '工作事项', icon: BriefcaseBusiness, group: '事务' },
-  { page: 'personal', label: '个人事项', icon: User, group: '事务' },
+  { page: 'personal', label: '生活事项', icon: User, group: '事务' },
   { page: 'projects', label: '项目跟进', icon: FolderKanban, group: '事务' },
   { page: 'calendar', label: '日程提醒', icon: CalendarDays, group: '工具' },
   { page: 'tags', label: '标签', icon: Tag, group: '工具' },
@@ -195,7 +195,7 @@ function Login() {
       <form className="login-panel" onSubmit={submit}>
         <div>
           <p className="eyebrow">{APP_NAME}</p>
-          <h1>个人事务管理</h1>
+          <h1>事件流工作台</h1>
         </div>
         <label>
           用户名

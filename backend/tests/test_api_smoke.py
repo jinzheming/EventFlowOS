@@ -60,6 +60,9 @@ def test_health_and_openapi_do_not_require_database(monkeypatch) -> None:
         items_params = schema["paths"]["/api/v1/items"]["get"]["parameters"]
         items_param_names = {param["name"] for param in items_params}
         assert {"scope", "include_archived", "search"} <= items_param_names
+        history_params = schema["paths"]["/api/v1/items/history"]["get"]["parameters"]
+        history_param_names = {param["name"] for param in history_params}
+        assert {"scope", "view", "search", "limit", "offset"} <= history_param_names
         item_create = schema["components"]["schemas"]["ItemCreate"]["properties"]
         assert {"intake_text", "intake_scope_source", "intake_origin", "intake_normalization"} <= set(item_create)
         assert "get" in schema["paths"]["/api/v1/export"]

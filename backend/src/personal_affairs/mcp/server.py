@@ -1,4 +1,4 @@
-"""P9a: MCP server for Personal Affairs.
+"""P9a: MCP server for EventFlowOS.
 
 Same-process FastMCP server exposing the core item / people / reminder surface
 to AI agents. Every tool call authenticates a personal access token
@@ -61,7 +61,7 @@ from personal_affairs.storage.repositories.write_targets import WriteTargetsRepo
 _MCP_HOST = os.environ.get("PERSONAL_AFFAIRS_MCP_HOST", "127.0.0.1")
 _MCP_PORT = int(os.environ.get("PERSONAL_AFFAIRS_MCP_PORT", "18099"))
 
-mcp = FastMCP("Personal Affairs", host=_MCP_HOST, port=_MCP_PORT)
+mcp = FastMCP("EventFlowOS", host=_MCP_HOST, port=_MCP_PORT)
 
 
 def _pat() -> str:
@@ -145,7 +145,7 @@ async def pa_list_items(
     search: str | None = None,
     limit: int = 100,
 ) -> list[dict]:
-    """List personal affairs items, optionally filtered by scope/status/project/text."""
+    """List EventFlowOS items, optionally filtered by scope/status/project/text."""
     return await _authed(
         lambda conn, uid: ItemsRepository(conn).list_items(
             uid,
@@ -181,6 +181,9 @@ async def pa_create_item(
     due_at: str | None = None,
     start_date: str | None = None,
     due_date: str | None = None,
+    event_format: str | None = None,
+    event_location: str | None = None,
+    event_url: str | None = None,
     waiting_on: str | None = None,
     waiting_follow_up_date: str | None = None,
     recurrence_freq: str | None = None,
@@ -209,6 +212,9 @@ async def pa_create_item(
         "due_at": _parse_datetime(due_at),
         "start_date": date.fromisoformat(start_date) if start_date else None,
         "due_date": date.fromisoformat(due_date) if due_date else None,
+        "event_format": event_format,
+        "event_location": event_location,
+        "event_url": event_url,
         "waiting_on": waiting_on,
         "waiting_follow_up_date": date.fromisoformat(waiting_follow_up_date) if waiting_follow_up_date else None,
         "recurrence_freq": recurrence_freq,
@@ -241,6 +247,9 @@ async def pa_update_item(
     due_at: str | None = None,
     start_date: str | None = None,
     due_date: str | None = None,
+    event_format: str | None = None,
+    event_location: str | None = None,
+    event_url: str | None = None,
     waiting_on: str | None = None,
     waiting_follow_up_date: str | None = None,
     recurrence_freq: str | None = None,
@@ -265,6 +274,9 @@ async def pa_update_item(
         "due_at": _parse_datetime(due_at),
         "start_date": date.fromisoformat(start_date) if start_date else None,
         "due_date": date.fromisoformat(due_date) if due_date else None,
+        "event_format": event_format,
+        "event_location": event_location,
+        "event_url": event_url,
         "waiting_on": waiting_on,
         "waiting_follow_up_date": date.fromisoformat(waiting_follow_up_date) if waiting_follow_up_date else None,
         "recurrence_freq": recurrence_freq,
@@ -698,6 +710,9 @@ async def pa_create_calendar_event(
     all_day: bool = False,
     notes: str | None = None,
     estimated_minutes: int | None = None,
+    event_format: str | None = None,
+    event_location: str | None = None,
+    event_url: str | None = None,
     reminder_timing: str | None = None,
     reminder_offset_minutes: int = 10,
     client_request_id: str | None = None,
@@ -723,6 +738,9 @@ async def pa_create_calendar_event(
         "due_date": date.fromisoformat(due_date) if due_date else None,
         "notes": notes,
         "estimated_minutes": estimated_minutes,
+        "event_format": event_format,
+        "event_location": event_location,
+        "event_url": event_url,
         "client_request_id": client_request_id,
     }
     request = ItemCreate(**{k: v for k, v in fields.items() if v is not None})
@@ -781,7 +799,7 @@ async def today_reminders_resource() -> str:
 @mcp.prompt()
 def pa_daily_brief() -> str:
     return (
-        "You are the user's personal affairs assistant. Build a concise daily brief: "
+        "You are the user's EventFlowOS assistant. Build a concise daily brief: "
         "query pa_list_deliveries(unseen=True) for pending reminders, pa_list_items for "
         "today's work/personal items, then propose a prioritized action plan. "
         "If the user asks to write or sync data to Feishu Base or another external table, "

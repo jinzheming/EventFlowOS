@@ -1,6 +1,6 @@
 import type { Item } from '../api/client';
 import { formatUpdatedAt } from './dates';
-import { formatDuration } from './labels';
+import { eventFormatLabels, formatDuration } from './labels';
 import { recurrenceBadge } from './recurrence';
 
 export type RowSegment = { kind: 'person' | 'project' | 'tag' | 'meta'; label: string; color?: string };
@@ -17,6 +17,10 @@ export function rowSegments(item: Item): RowSegment[] {
   const repeat = recurrenceBadge(item);
   if (repeat && item.status !== 'done' && item.status !== 'cancelled') segments.push({ kind: 'meta', label: repeat });
   if (item.estimated_minutes) segments.push({ kind: 'meta', label: `预计 ${formatDuration(item.estimated_minutes)}` });
+  if (item.event_format) {
+    const detail = eventLocationSummary(item);
+    segments.push({ kind: 'meta', label: detail ? `${eventFormatLabels[item.event_format]} · ${detail}` : eventFormatLabels[item.event_format] });
+  }
   return segments;
 }
 
@@ -28,7 +32,16 @@ export function rowTooltip(item: Item): string {
   const repeat = recurrenceBadge(item);
   if (repeat) parts.push(repeat.replace('↻ ', '重复：'));
   if (item.estimated_minutes) parts.push(`预计 ${formatDuration(item.estimated_minutes)}`);
+  if (item.event_format) {
+    parts.push([eventFormatLabels[item.event_format], item.event_location, item.event_url].filter(Boolean).join(' · '));
+  }
   parts.push(`更新于 ${formatUpdatedAt(item.updated_at)}`);
   if (item.status === 'done' && item.completed_at) parts.push(`完成于 ${formatUpdatedAt(item.completed_at)}`);
   return parts.join(' · ');
+}
+
+function eventLocationSummary(item: Item) {
+  if (item.event_format === 'online') return item.event_url;
+  if (item.event_format === 'offline') return item.event_location;
+  return [item.event_location, item.event_url].filter(Boolean).join(' / ');
 }

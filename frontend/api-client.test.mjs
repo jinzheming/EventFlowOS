@@ -62,3 +62,26 @@ test('non-CSRF API errors preserve status and code without retrying', async () =
   );
   assert.equal(calls, 1);
 });
+
+test('historyItems requests the paged history endpoint', async () => {
+  let requestedUrl = '';
+  globalThis.fetch = async (url) => {
+    requestedUrl = String(url);
+    return new Response(JSON.stringify({ items: [], total: 42, limit: 30, offset: 60, has_more: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  };
+
+  const page = await api.historyItems('work', 'done', 'alpha tag', 30, 60);
+
+  const parsed = new URL(requestedUrl, 'http://eventflowos.local');
+  assert.equal(parsed.pathname, '/api/v1/items/history');
+  assert.equal(parsed.searchParams.get('scope'), 'work');
+  assert.equal(parsed.searchParams.get('view'), 'done');
+  assert.equal(parsed.searchParams.get('search'), 'alpha tag');
+  assert.equal(parsed.searchParams.get('limit'), '30');
+  assert.equal(parsed.searchParams.get('offset'), '60');
+  assert.equal(page.total, 42);
+  assert.equal(page.has_more, true);
+});

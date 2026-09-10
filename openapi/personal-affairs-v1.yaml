@@ -267,6 +267,9 @@ paths:
         - in: query
           name: state
           schema: { type: string, enum: [pending, approved, edited_approved, rejected, ignored, expired] }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
       responses:
         '200': { description: OK }
         '401': { description: Authentication required }
@@ -340,6 +343,9 @@ paths:
         - in: query
           name: search
           schema: { type: string, maxLength: 100 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
       responses:
         '200': { description: OK }
     post:
@@ -349,6 +355,29 @@ paths:
       responses:
         '201': { description: Created }
         '409': { description: Idempotency conflict }
+  /items/history:
+    get:
+      summary: List completed or archived items using history-time pagination.
+      parameters:
+        - in: query
+          name: scope
+          required: true
+          schema: { type: string, enum: [work, personal] }
+        - in: query
+          name: view
+          required: true
+          schema: { type: string, enum: [done, archived] }
+        - in: query
+          name: search
+          schema: { type: string, maxLength: 100 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 30 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        '200': { description: OK }
   /items/{item_id}:
     get:
       summary: Get an item.
