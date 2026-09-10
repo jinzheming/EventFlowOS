@@ -10,6 +10,13 @@
   box-sizing: border-box;
 }
 
+/* 全局横向溢出兜底：任何子元素意外超宽时裁剪而非整页左右滚动；
+   用 clip 而非 hidden，避免把 body 变成滚动容器而破坏 position: sticky（批量操作栏/分组导航）。 */
+html,
+body {
+  overflow-x: clip;
+}
+
 body {
   margin: 0;
   min-width: 320px;
@@ -421,28 +428,19 @@ textarea:focus {
   position: relative;
 }
 
-.work-quick-add {
-  display: grid;
-  grid-template-columns: minmax(280px, 1fr) 220px repeat(3, auto) auto;
-  gap: 10px;
-  align-items: center;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  border-radius: 10px;
-  padding: 12px;
-}
-
+/* 列表工具栏：允许换行，窄屏时搜索区独占一行，避免整页横向溢出 */
 .list-controls {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px 10px;
+  flex-wrap: wrap;
 }
 
 .list-controls input,
 .calendar-toolbar input,
 .tag-item-controls input {
-  min-width: min(360px, 100%);
+  min-width: min(220px, 100%);
   flex: 1;
 }
 
@@ -596,17 +594,6 @@ textarea:focus {
   padding: 14px;
 }
 
-.work-card:not(.item-row) {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
-  padding: 12px 14px;
-  text-align: left;
-}
-
 .work-card:last-child {
   border-bottom: 0;
 }
@@ -614,37 +601,6 @@ textarea:focus {
 .work-card.active {
   background: var(--accent-soft);
   box-shadow: inset 3px 0 0 var(--accent);
-}
-
-.work-card-main {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(260px, 1.35fr) minmax(120px, auto);
-  align-items: center;
-  gap: 6px 14px;
-}
-
-.work-card-main strong {
-  grid-column: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  line-height: 1.35;
-}
-
-.work-card-fields,
-.work-card-pills {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
-.work-card-fields {
-  grid-column: 2;
 }
 
 .field-pill {
@@ -660,51 +616,6 @@ textarea:focus {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.schedule-field.today {
-  border-color: var(--accent-soft);
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.schedule-field.soon {
-  border-color: var(--accent-soft);
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.schedule-field.danger {
-  border-color: var(--danger-soft);
-  background: var(--danger-soft);
-  color: var(--danger);
-}
-
-.work-note-preview {
-  grid-column: 1 / 4;
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.45;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.work-card-footer {
-  grid-column: 3;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-  color: var(--text-faint);
-  font-size: 11px;
-}
-
-.work-card-pills {
-  grid-column: 3;
-  justify-content: flex-end;
 }
 
 .personal-quick-add {
@@ -764,15 +675,39 @@ textarea:focus {
   padding: 14px;
 }
 
+.history-list {
+  max-width: 100%;
+  overflow: clip;
+}
 
-.personal-row:not(.item-row) {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) minmax(130px, auto);
+.history-group {
+  min-width: 0;
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--border));
+}
+
+.history-group + .history-group {
+  margin-top: 4px;
+}
+
+.history-group h2 {
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface-subtle));
+  color: var(--text);
+  font-weight: 700;
+}
+
+.history-group .item-row {
+  min-width: 0;
+  border-radius: 0;
+}
+
+.history-load-more {
+  display: flex;
   align-items: center;
-  gap: 12px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
-  padding: 12px 14px;
+  justify-content: center;
+  gap: 10px;
+  padding: 4px 0 12px;
+  color: var(--text-faint);
+  font-size: 12px;
 }
 
 .personal-row:last-child {
@@ -782,57 +717,6 @@ textarea:focus {
 .personal-row.active {
   background: var(--accent-soft);
   box-shadow: inset 3px 0 0 var(--accent);
-}
-
-.personal-row-main {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-}
-
-.personal-row-main strong,
-.personal-row-main span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.personal-row-main span {
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-
-.personal-time {
-  justify-self: end;
-  color: var(--text-secondary);
-  font-size: 13px;
-  white-space: nowrap;
-}
-
-.personal-time.today {
-  color: var(--accent);
-  font-weight: 700;
-}
-
-.personal-time.soon {
-  color: var(--accent);
-}
-
-.personal-time.danger {
-  color: var(--danger);
-  font-weight: 700;
-}
-
-.personal-time.done,
-.personal-time.muted {
-  color: var(--text-faint);
-}
-
-.personal-row-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
 }
 
 .project-quick-add {
@@ -1124,12 +1008,34 @@ textarea:focus {
 }
 
 .advanced-fields,
-.reminder-box {
+.reminder-box,
+.event-format-box {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 12px;
   display: grid;
   gap: 12px;
+}
+
+.event-format-title,
+.event-format-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.event-format-title {
+  color: var(--text-secondary);
+  font-weight: 700;
+}
+
+.event-format-options {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.event-format-options .chip {
+  min-width: 72px;
 }
 
 .advanced-fields summary {
@@ -1633,19 +1539,21 @@ button.health-strip {
   }
 
   .quick-add,
-  .work-quick-add,
   .personal-quick-add,
   .project-quick-add,
-  .list-controls,
   .calendar-date-row {
     grid-template-columns: 1fr;
   }
 
   .list-controls,
-  .personal-row-actions,
   .date-time-actions {
     align-items: flex-start;
     justify-content: flex-start;
+  }
+
+  /* 窄屏：搜索区独占一行并占满宽度，避免工具栏横向溢出 */
+  .list-controls .toolbar-right {
+    width: 100%;
   }
 
   .project-line {
@@ -1666,45 +1574,6 @@ button.health-strip {
 
   .calendar-time {
     font-size: 16px;
-  }
-
-  .personal-row {
-    grid-template-columns: auto minmax(0, 1fr);
-    align-items: start;
-  }
-
-  .personal-time {
-    grid-column: 2;
-    justify-self: start;
-  }
-
-  .personal-row-actions {
-    grid-column: 2;
-  }
-
-  .work-card {
-    grid-template-columns: auto minmax(0, 1fr);
-    align-items: start;
-  }
-
-  .work-card-main {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .work-card-main strong,
-  .work-card-fields,
-  .work-note-preview,
-  .work-card-footer {
-    grid-column: 1;
-  }
-
-  .work-card-footer,
-  .work-card-pills {
-    justify-content: flex-start;
-  }
-
-  .work-card-pills {
-    grid-column: 2;
   }
 
   .detail-drawer {
@@ -2849,6 +2718,7 @@ button.health-strip {
   border-radius: 10px;
   box-shadow: var(--shadow-1);
   z-index: 30;
+  max-width: 100%;
 }
 
 .batch-tag-popover {
@@ -4124,14 +3994,6 @@ button.health-strip {
   color: var(--text-faint);
 }
 
-.row-time-lead {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--accent-text);
-  flex-shrink: 0;
-  font-variant-numeric: tabular-nums;
-}
-
 .row-timeslot {
   flex-shrink: 0;
   font-size: 12px;
@@ -4186,12 +4048,18 @@ button.health-strip {
 
 @media (max-width: 640px) {
   .item-row {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .item-row .row-timeslot {
+    grid-column: 2;
+    justify-self: start;
   }
 
   .item-row .row-ops {
     grid-column: 1 / -1;
     justify-content: flex-end;
+    flex-wrap: wrap;
   }
 }
 
@@ -4446,11 +4314,15 @@ button.health-strip {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
+/* 搜索框弹性伸缩：宽屏占满剩余空间，窄屏收缩不撑破工具栏 */
 .toolbar-right input {
   min-height: 30px;
-  width: 220px;
+  width: auto;
+  flex: 1 1 180px;
+  min-width: 0;
 }
 
 .display-menu-wrap {
