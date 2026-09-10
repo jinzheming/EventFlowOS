@@ -1,5 +1,6 @@
 import { CalendarEvent } from '../api/client';
 import { todayString } from '../lib/dates';
+import { eventFormatLabels } from '../lib/labels';
 import { WEEKDAY_LABELS } from '../lib/week';
 
 export function MonthGrid({
@@ -51,7 +52,7 @@ export function MonthGrid({
                     type="button"
                     key={event.id}
                     style={{ borderColor: event.color }}
-                    title={event.title}
+                    title={calendarEventTitle(event)}
                     onClick={(clickEvent) => {
                       clickEvent.stopPropagation();
                       if (event.kind !== 'milestone') onOpenItem(event.source_id);
@@ -69,4 +70,15 @@ export function MonthGrid({
       ))}
     </div>
   );
+}
+
+function calendarEventTitle(event: CalendarEvent) {
+  return [
+    event.kind === 'milestone' ? `里程碑：${event.title}` : event.title,
+    event.event_format ? eventFormatLabels[event.event_format] : '',
+    event.event_location,
+    event.event_url,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 }

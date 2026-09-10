@@ -208,7 +208,7 @@ export function TodayPage({ session }: { session: Session }) {
           <summary>
             未排期 <span>{today.unscheduled.length}</span>
             <a className="today-unscheduled-link" href="#/work">去工作事项</a>
-            <a className="today-unscheduled-link" href="#/personal">去个人事项</a>
+            <a className="today-unscheduled-link" href="#/personal">去生活事项</a>
           </summary>
           <div className="today-list">
             {today.unscheduled.length === 0 && <p className="empty">暂无内容</p>}

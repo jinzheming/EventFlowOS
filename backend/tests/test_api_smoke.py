@@ -4,6 +4,33 @@ from fastapi.testclient import TestClient
 from personal_affairs.config import get_settings
 
 
+def test_ready_reports_highest_migration_version(monkeypatch) -> None:
+    from personal_affairs.api.routes import system
+
+    executed_sql: list[str] = []
+
+    class FakeResult:
+        def fetchone(self) -> dict[str, str]:
+            return {"version": "026_external_profiles"}
+
+    class FakeConn:
+        def execute(self, sql: str) -> FakeResult:
+            executed_sql.append(sql)
+            return FakeResult()
+
+    class FakeConnection:
+        def __enter__(self) -> FakeConn:
+            return FakeConn()
+
+        def __exit__(self, exc_type, exc, tb) -> None:  # noqa: ANN001
+            return None
+
+    monkeypatch.setattr(system, "connection", lambda cfg: FakeConnection())
+
+    assert system.ready() == {"status": "ready", "schema_version": "026_external_profiles"}
+    assert "ORDER BY version DESC" in executed_sql[0]
+
+
 def test_health_and_openapi_do_not_require_database(monkeypatch) -> None:
     monkeypatch.setenv("PERSONAL_AFFAIRS_APP_ENV", "unit")
     get_settings.cache_clear()
@@ -33,6 +60,11 @@ def test_health_and_openapi_do_not_require_database(monkeypatch) -> None:
         items_params = schema["paths"]["/api/v1/items"]["get"]["parameters"]
         items_param_names = {param["name"] for param in items_params}
         assert {"scope", "include_archived", "search"} <= items_param_names
+        history_params = schema["paths"]["/api/v1/items/history"]["get"]["parameters"]
+        history_param_names = {param["name"] for param in history_params}
+        assert {"scope", "view", "search", "limit", "offset"} <= history_param_names
+        item_create = schema["components"]["schemas"]["ItemCreate"]["properties"]
+        assert {"intake_text", "intake_scope_source", "intake_origin", "intake_normalization"} <= set(item_create)
         assert "get" in schema["paths"]["/api/v1/export"]
         items_id_path = schema["paths"]["/api/v1/items/{item_id}"]
         assert "delete" in items_id_path
@@ -106,6 +138,40 @@ def test_health_and_openapi_do_not_require_database(monkeypatch) -> None:
         assert {"secret", "events", "active"} <= set(webhook_created)
         webhook_event = schema["components"]["schemas"]["WebhookEventOut"]["properties"]
         assert {"event_type", "status", "attempt_count"} <= set(webhook_event)
+        targets_path = schema["paths"]["/api/v1/write-targets"]
+        assert "get" in targets_path
+        assert "post" in targets_path
+        assert "get" in schema["paths"]["/api/v1/write-targets/presets"]
+        assert "patch" in schema["paths"]["/api/v1/write-targets/{target_id}"]
+        assert "delete" in schema["paths"]["/api/v1/write-targets/{target_id}"]
+        write_target = schema["components"]["schemas"]["WriteTargetOut"]["properties"]
+        assert {"target_type", "target_url", "format_key", "field_mapping", "instructions"} <= set(write_target)
+        external_profiles_path = schema["paths"]["/api/v1/external-profiles"]
+        assert "get" in external_profiles_path
+        assert "post" in external_profiles_path
+        assert "get" in schema["paths"]["/api/v1/external-profiles/presets"]
+        assert "get" in schema["paths"]["/api/v1/external-profiles/purposes"]
+        assert "patch" in schema["paths"]["/api/v1/external-profiles/{profile_id}"]
+        assert "delete" in schema["paths"]["/api/v1/external-profiles/{profile_id}"]
+        external_bindings_path = schema["paths"]["/api/v1/external-bindings"]
+        assert "get" in external_bindings_path
+        assert "post" in external_bindings_path
+        assert "get" in schema["paths"]["/api/v1/external-bindings/resolve"]
+        external_binding = schema["components"]["schemas"]["ExternalBindingOut"]["properties"]
+        assert {"purpose_key", "target_ref", "format_key", "field_mapping", "conflict_policy"} <= set(external_binding)
+        profiles_path = schema["paths"]["/api/v1/llm-profiles"]
+        assert "get" in profiles_path
+        assert "post" in profiles_path
+        assert "get" in schema["paths"]["/api/v1/llm-profiles/presets"]
+        assert "get" in schema["paths"]["/api/v1/llm-profiles/purposes"]
+        assert "patch" in schema["paths"]["/api/v1/llm-profiles/{profile_id}"]
+        assert "delete" in schema["paths"]["/api/v1/llm-profiles/{profile_id}"]
+        bindings_path = schema["paths"]["/api/v1/llm-bindings"]
+        assert "get" in bindings_path
+        assert "post" in bindings_path
+        assert "get" in schema["paths"]["/api/v1/llm-bindings/resolve"]
+        llm_profile = schema["components"]["schemas"]["LLMProfileOut"]["properties"]
+        assert {"provider_key", "base_url", "model_name", "auth_ref", "default_params"} <= set(llm_profile)
         proposals_path = schema["paths"]["/api/v1/agent-proposals"]
         assert "get" in proposals_path
         assert "post" in proposals_path

@@ -1,5 +1,5 @@
 import re
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from psycopg import Connection
@@ -12,7 +12,8 @@ from personal_affairs.storage.repositories.tags import TagsRepository
 
 ITEM_COLUMNS = """
     i.id, i.scope, i.project_id, p.name AS project_name, i.title, i.notes, i.status, i.priority,
-    i.all_day, i.start_at, i.due_at, i.start_date, i.due_date, i.waiting_on, i.waiting_follow_up_date,
+    i.all_day, i.start_at, i.due_at, i.start_date, i.due_date,
+    i.event_format, i.event_location, i.event_url, i.waiting_on, i.waiting_follow_up_date,
     i.recurrence_freq, i.recurrence_interval, i.recurrence_until, i.recurrence_count, i.estimated_minutes,
     i.completed_at, i.cancelled_at, i.archived_at, i.deleted_at,
     i.created_by_actor, i.updated_by_actor, i.source_context, i.execution_output,
@@ -21,12 +22,59 @@ ITEM_COLUMNS = """
 
 ITEM_RETURN_COLUMNS = """
     id, scope, project_id, NULL::text AS project_name, title, notes, status, priority,
-    all_day, start_at, due_at, start_date, due_date, waiting_on, waiting_follow_up_date,
+    all_day, start_at, due_at, start_date, due_date,
+    event_format, event_location, event_url, waiting_on, waiting_follow_up_date,
     recurrence_freq, recurrence_interval, recurrence_until, recurrence_count, estimated_minutes,
     completed_at, cancelled_at, archived_at, deleted_at,
     created_by_actor, updated_by_actor, source_context, execution_output,
     version, created_at, updated_at
 """
+
+
+HistoryItemView = Literal["done", "archived"]
+
+
+def _escaped_search_pattern(search: str) -> str:
+    term = re.sub(r"([%_\\])", r"\\\1", search.strip())
+    return f"%{term}%"
+
+
+def _append_rich_search(where: list[str], params: list[Any], search: str | None) -> None:
+    if not search or not search.strip():
+        return
+    pattern = _escaped_search_pattern(search)
+    where.append(
+        """
+        (
+            i.title ILIKE %s ESCAPE '\\'
+            OR i.notes ILIKE %s ESCAPE '\\'
+            OR i.event_location ILIKE %s ESCAPE '\\'
+            OR i.event_url ILIKE %s ESCAPE '\\'
+            OR i.waiting_on ILIKE %s ESCAPE '\\'
+            OR p.name ILIKE %s ESCAPE '\\'
+            OR EXISTS (
+                SELECT 1
+                FROM personal_affairs.item_tags it
+                JOIN personal_affairs.tags t ON t.id = it.tag_id AND t.user_id = i.user_id
+                WHERE it.item_id = i.id AND t.name ILIKE %s ESCAPE '\\'
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM personal_affairs.item_people ip
+                JOIN personal_affairs.people pe ON pe.id = ip.person_id AND pe.user_id = i.user_id
+                WHERE ip.item_id = i.id
+                  AND (pe.name ILIKE %s ESCAPE '\\' OR pe.identity ILIKE %s ESCAPE '\\')
+            )
+        )
+        """
+    )
+    params.extend([pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern])
+
+
+def _history_timestamp_sql(view: HistoryItemView) -> str:
+    if view == "done":
+        return "COALESCE(i.completed_at, i.updated_at)"
+    return "CASE WHEN i.status = 'done' THEN COALESCE(i.completed_at, i.archived_at, i.updated_at) ELSE COALESCE(i.archived_at, i.updated_at) END"
 
 
 class ItemsRepository:
@@ -96,8 +144,11 @@ class ItemsRepository:
             params.append(status.value)
         if search and search.strip():
             term = re.sub(r"([%_\\])", r"\\\1", search.strip())
-            where.append("(i.title ILIKE %s ESCAPE '\\' OR i.notes ILIKE %s ESCAPE '\\')")
-            params.extend([f"%{term}%", f"%{term}%"])
+            where.append(
+                "(i.title ILIKE %s ESCAPE '\\' OR i.notes ILIKE %s ESCAPE '\\' OR "
+                "i.event_location ILIKE %s ESCAPE '\\' OR i.event_url ILIKE %s ESCAPE '\\')"
+            )
+            params.extend([f"%{term}%", f"%{term}%", f"%{term}%", f"%{term}%"])
         params.append(limit)
         rows = list(
             self.conn.execute(
@@ -115,6 +166,47 @@ class ItemsRepository:
         )
         TagsRepository(self.conn).attach_tags(user_id, rows)
         return PeopleRepository(self.conn).attach_people(user_id, rows)
+
+    def list_history_items(
+        self,
+        user_id: UUID,
+        scope: ItemScope,
+        view: HistoryItemView,
+        limit: int = 30,
+        offset: int = 0,
+        search: str | None = None,
+    ) -> tuple[list[dict], int]:
+        where: list[str] = ["i.user_id = %s", "i.scope = %s", "i.deleted_at IS NULL"]
+        params: list[Any] = [user_id, scope.value]
+        if view == "done":
+            where.append("i.archived_at IS NULL")
+            where.append("i.status = %s")
+            params.append(ItemStatus.DONE.value)
+        else:
+            where.append("i.archived_at IS NOT NULL")
+        _append_rich_search(where, params, search)
+
+        from_clause = f"""
+            FROM personal_affairs.items i
+            LEFT JOIN personal_affairs.projects p ON p.id = i.project_id AND p.user_id = i.user_id
+            WHERE {' AND '.join(where)}
+        """
+        total_row = self.conn.execute(f"SELECT COUNT(*) AS total {from_clause}", params).fetchone()
+        total = int(total_row["total"] if total_row else 0)
+        timestamp_sql = _history_timestamp_sql(view)
+        rows = list(
+            self.conn.execute(
+                f"""
+                SELECT {ITEM_COLUMNS}
+                {from_clause}
+                ORDER BY {timestamp_sql} DESC NULLS LAST, i.updated_at DESC, i.title ASC, i.id ASC
+                LIMIT %s OFFSET %s
+                """,
+                [*params, limit, offset],
+            ).fetchall()
+        )
+        TagsRepository(self.conn).attach_tags(user_id, rows)
+        return PeopleRepository(self.conn).attach_people(user_id, rows), total
 
     def get_item(self, user_id: UUID, item_id: UUID) -> dict | None:
         row = self.conn.execute(
@@ -136,10 +228,11 @@ class ItemsRepository:
             f"""
             INSERT INTO personal_affairs.items(
                 user_id, scope, project_id, title, notes, status, priority, all_day,
-                start_at, due_at, start_date, due_date, waiting_on, waiting_follow_up_date,
+                start_at, due_at, start_date, due_date,
+                event_format, event_location, event_url, waiting_on, waiting_follow_up_date,
                 recurrence_freq, recurrence_interval, recurrence_until, recurrence_count, estimated_minutes,
                 created_by_actor, updated_by_actor, source_context, execution_output
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING {ITEM_RETURN_COLUMNS}
             """,
             (
@@ -155,6 +248,9 @@ class ItemsRepository:
                 payload.get("due_at"),
                 payload.get("start_date"),
                 payload.get("due_date"),
+                payload.get("event_format"),
+                payload.get("event_location"),
+                payload.get("event_url"),
                 payload.get("waiting_on"),
                 payload.get("waiting_follow_up_date"),
                 payload.get("recurrence_freq"),
@@ -184,6 +280,9 @@ class ItemsRepository:
             "due_at",
             "start_date",
             "due_date",
+            "event_format",
+            "event_location",
+            "event_url",
             "waiting_on",
             "waiting_follow_up_date",
             "recurrence_freq",

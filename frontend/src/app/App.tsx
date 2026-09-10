@@ -17,7 +17,7 @@ import {
   User,
 } from 'lucide-react';
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { api, Item, ReminderDelivery, Scope, Session } from '../api/client';
+import { ApiError, api, Item, ReminderDelivery, Scope, Session } from '../api/client';
 import { FocusBar } from '../components/FocusControls';
 import { stashViewHandoff } from '../components/SavedViews';
 import { QuickAddDialog } from '../components/QuickAddDialog';
@@ -48,7 +48,7 @@ const navItems: Array<{ page: Page; label: string; icon: typeof Home; group: Nav
   { page: 'today', label: '今日', icon: Home, group: '工作台' },
   { page: 'inbox', label: '收集箱', icon: Inbox, group: '工作台' },
   { page: 'work', label: '工作事项', icon: BriefcaseBusiness, group: '事务' },
-  { page: 'personal', label: '个人事项', icon: User, group: '事务' },
+  { page: 'personal', label: '生活事项', icon: User, group: '事务' },
   { page: 'projects', label: '项目跟进', icon: FolderKanban, group: '事务' },
   { page: 'calendar', label: '日程提醒', icon: CalendarDays, group: '工具' },
   { page: 'tags', label: '标签', icon: Tag, group: '工具' },
@@ -68,8 +68,38 @@ function navigate(page: Page) {
 }
 
 export function App() {
+  const queryClient = useQueryClient();
   const [page, setPage] = useState<Page>(pageFromHash);
-  const session = useQuery({ queryKey: ['session'], queryFn: api.session, retry: false });
+  const [apiError, setApiError] = useState<ApiError | null>(null);
+  const session = useQuery({
+    queryKey: ['session'],
+    queryFn: api.session,
+    retry: 2,
+    retryDelay: (attempt) => Math.min(250 * 2 ** attempt, 1000),
+  });
+
+  useEffect(() => {
+    const onApiError = (event: Event) => {
+      const error = (event as CustomEvent<ApiError>).detail;
+      setApiError(error);
+    };
+    const onSessionRefreshed = (event: Event) => {
+      const nextSession = (event as CustomEvent<Session>).detail;
+      queryClient.setQueryData(['session'], nextSession);
+      setApiError(null);
+    };
+    const onAuthExpired = () => {
+      queryClient.removeQueries({ queryKey: ['session'] });
+    };
+    window.addEventListener('pa-api-error', onApiError);
+    window.addEventListener('pa-session-refreshed', onSessionRefreshed);
+    window.addEventListener('pa-auth-expired', onAuthExpired);
+    return () => {
+      window.removeEventListener('pa-api-error', onApiError);
+      window.removeEventListener('pa-session-refreshed', onSessionRefreshed);
+      window.removeEventListener('pa-auth-expired', onAuthExpired);
+    };
+  }, [queryClient]);
 
   useEffect(() => {
     function onHashChange() {
@@ -87,19 +117,31 @@ export function App() {
   if (session.isError || !session.data) return <Login />;
 
   return (
-    <UndoProvider>
-      <Shell page={page} onNavigate={navigate} session={session.data}>
-        {page === 'today' && <TodayPage session={session.data} />}
-        {page === 'inbox' && <InboxPage session={session.data} />}
-        {page === 'work' && <WorkItemsPage session={session.data} />}
-        {page === 'personal' && <PersonalItemsPage session={session.data} />}
-        {page === 'projects' && <ProjectsPage session={session.data} />}
-        {page === 'calendar' && <CalendarPage session={session.data} />}
-        {page === 'tags' && <TagsPage session={session.data} />}
-        {page === 'settings' && <SettingsPage session={session.data} />}
-        {page === 'review' && <ReviewGate session={session.data} />}
-      </Shell>
-    </UndoProvider>
+    <>
+      {apiError && (
+        <div className="error-line" role="alert">
+          {apiError.code === 'CSRF_REQUIRED'
+            ? '登录状态已失效，请重新登录后重试。'
+            : apiError.message}
+          <button className="ghost sm" type="button" onClick={() => setApiError(null)}>
+            关闭
+          </button>
+        </div>
+      )}
+      <UndoProvider>
+        <Shell page={page} onNavigate={navigate} session={session.data}>
+          {page === 'today' && <TodayPage session={session.data} />}
+          {page === 'inbox' && <InboxPage session={session.data} />}
+          {page === 'work' && <WorkItemsPage session={session.data} />}
+          {page === 'personal' && <PersonalItemsPage session={session.data} />}
+          {page === 'projects' && <ProjectsPage session={session.data} />}
+          {page === 'calendar' && <CalendarPage session={session.data} />}
+          {page === 'tags' && <TagsPage session={session.data} />}
+          {page === 'settings' && <SettingsPage session={session.data} />}
+          {page === 'review' && <ReviewGate session={session.data} />}
+        </Shell>
+      </UndoProvider>
+    </>
   );
 }
 
@@ -153,7 +195,7 @@ function Login() {
       <form className="login-panel" onSubmit={submit}>
         <div>
           <p className="eyebrow">{APP_NAME}</p>
-          <h1>个人事务管理</h1>
+          <h1>事件流工作台</h1>
         </div>
         <label>
           用户名

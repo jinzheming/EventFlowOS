@@ -1,5 +1,5 @@
 import { formatScheduleTime } from '../lib/dates';
-import { scopeLabel, statusLabels } from '../lib/labels';
+import { eventFormatLabels, scopeLabel, statusLabels } from '../lib/labels';
 import { TimedSchedule } from '../lib/calendar';
 
 export function CalendarScheduleRow({ schedule, onOpen }: { schedule: TimedSchedule; onOpen: () => void }) {
@@ -24,6 +24,8 @@ export function CalendarScheduleRow({ schedule, onOpen }: { schedule: TimedSched
           <span>{scopeLabel(item.scope)}</span>
           <span>{schedule.relation}</span>
           {item.scope === 'work' && <span>项目：{item.project_name ?? '未关联'}</span>}
+          {item.event_format && <span>{eventFormatLabels[item.event_format]}</span>}
+          {item.event_location && <span>{item.event_location}</span>}
           <span>{statusLabels[item.status]}</span>
         </div>
       </div>

@@ -13,6 +13,14 @@ def run_migrations(database_url: str) -> list[str]:
         with conn.cursor() as cur:
             for path in sorted(MIGRATIONS_DIR.glob("*.sql")):
                 cur.execute(path.read_text())
+                cur.execute(
+                    """
+                    INSERT INTO personal_affairs.schema_migrations(version)
+                    VALUES (%s)
+                    ON CONFLICT (version) DO NOTHING
+                    """,
+                    (path.stem,),
+                )
                 applied.append(path.name)
         conn.commit()
     return applied

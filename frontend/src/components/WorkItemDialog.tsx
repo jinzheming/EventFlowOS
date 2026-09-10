@@ -6,6 +6,7 @@ import { useDialogA11y } from '../hooks/useDialogA11y';
 import { ReminderOffsetSelect } from './ReminderOffsetSelect';
 import { ReminderPreviewHint } from './ReminderPreviewHint';
 import { EstimatedDurationSelect } from './EstimatedDurationSelect';
+import { EventFormatFields } from './EventFormatFields';
 import { QuarterTimePicker } from './QuarterTimePicker';
 import { TagPicker } from './TagPicker';
 import { WorkDraft, emptyWorkDraft, hasDraftSchedule } from '../lib/drafts';
@@ -111,6 +112,7 @@ export function WorkItemDialog({
             <QuarterTimePicker value={draft.start_time || draft.due_time} onChange={(value) => setDraft(applyStartTime(draft, value))} />
           </label>
         </div>
+        <EventFormatFields value={draft} onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))} />
         <details className="advanced-fields">
           <summary>更多设置</summary>
           <label>

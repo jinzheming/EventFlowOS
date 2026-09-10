@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     tmeet_timeout_seconds: float = 8.0
     tmeet_home: str | None = Field(default=None, repr=False)
     tmeet_allowed_commands: str = "meeting:get"
+    intake_normalization_enabled: bool = False
+    intake_normalization_base_url: str = "http://127.0.0.1:14000/v1"
+    intake_normalization_api_key: str | None = Field(default=None, repr=False)
+    intake_normalization_model: str = "deepseek:deepseek-v4-flash"
+    intake_normalization_timeout_seconds: float = 3.0
+    intake_normalization_min_confidence: float = 0.55
 
 
 @lru_cache

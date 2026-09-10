@@ -1,4 +1,4 @@
-"""P9a: MCP server for Personal Affairs.
+"""P9a: MCP server for EventFlowOS.
 
 Same-process FastMCP server exposing the core item / people / reminder surface
 to AI agents. Every tool call authenticates a personal access token
@@ -33,25 +33,35 @@ from personal_affairs.application.agent_context_service import (
 )
 from personal_affairs.application.agent_proposal_service import AgentProposalService
 from personal_affairs.application.calendar_query_service import CalendarQueryService
+from personal_affairs.application.external_profiles import (
+    external_profile_presets,
+    external_purpose_presets,
+)
+from personal_affairs.application.item_intake_normalizer import ItemIntakeNormalizer
 from personal_affairs.application.item_service import ItemService
+from personal_affairs.application.llm_profiles import llm_profile_presets, llm_purpose_presets
 from personal_affairs.application.meeting_invite_parser import parse_tencent_meeting_invite
 from personal_affairs.application.people_service import PeopleService
 from personal_affairs.application.reminder_service import ReminderService
+from personal_affairs.application.write_targets import write_target_presets
 from personal_affairs.config import get_settings
 from personal_affairs.domain.enums import AgentProposalState, ItemScope, ItemStatus, ReminderTiming
 from personal_affairs.storage.database import connection
 from personal_affairs.storage.repositories.activity import ActivityRepository
 from personal_affairs.storage.repositories.agent_proposals import AgentProposalsRepository
+from personal_affairs.storage.repositories.external_profiles import ExternalProfilesRepository
 from personal_affairs.storage.repositories.items import ItemsRepository
+from personal_affairs.storage.repositories.llm_profiles import LLMProfilesRepository
 from personal_affairs.storage.repositories.people import PeopleRepository
 from personal_affairs.storage.repositories.projects import ProjectsRepository
 from personal_affairs.storage.repositories.reminders import RemindersRepository
 from personal_affairs.storage.repositories.tokens import TokensRepository
+from personal_affairs.storage.repositories.write_targets import WriteTargetsRepository
 
 _MCP_HOST = os.environ.get("PERSONAL_AFFAIRS_MCP_HOST", "127.0.0.1")
 _MCP_PORT = int(os.environ.get("PERSONAL_AFFAIRS_MCP_PORT", "18099"))
 
-mcp = FastMCP("Personal Affairs", host=_MCP_HOST, port=_MCP_PORT)
+mcp = FastMCP("EventFlowOS", host=_MCP_HOST, port=_MCP_PORT)
 
 
 def _pat() -> str:
@@ -135,7 +145,7 @@ async def pa_list_items(
     search: str | None = None,
     limit: int = 100,
 ) -> list[dict]:
-    """List personal affairs items, optionally filtered by scope/status/project/text."""
+    """List EventFlowOS items, optionally filtered by scope/status/project/text."""
     return await _authed(
         lambda conn, uid: ItemsRepository(conn).list_items(
             uid,
@@ -160,6 +170,8 @@ async def pa_get_item(item_id: str) -> dict | None:
 async def pa_create_item(
     title: str,
     scope: str,
+    intake_text: str | None = None,
+    intake_normalization: str = "llm",
     notes: str | None = None,
     status: str | None = None,
     priority: str | None = None,
@@ -169,6 +181,9 @@ async def pa_create_item(
     due_at: str | None = None,
     start_date: str | None = None,
     due_date: str | None = None,
+    event_format: str | None = None,
+    event_location: str | None = None,
+    event_url: str | None = None,
     waiting_on: str | None = None,
     waiting_follow_up_date: str | None = None,
     recurrence_freq: str | None = None,
@@ -180,10 +195,15 @@ async def pa_create_item(
     people: list[dict] | None = None,
     client_request_id: str | None = None,
 ) -> dict:
-    """Create an item (idempotent via client_request_id). scope: work|personal."""
+    """Create an item (idempotent via client_request_id). scope: work|personal. Agent calls use LLM intake by default."""
+    source_text = intake_text if intake_text is not None else title
     fields = {
         "title": title,
         "scope": ItemScope(scope),
+        "intake_text": source_text,
+        "intake_scope_source": "explicit",
+        "intake_origin": "agent",
+        "intake_normalization": intake_normalization,
         "status": ItemStatus(status) if status else None,
         "priority": priority,
         "project_id": UUID(project_id) if project_id else None,
@@ -192,6 +212,9 @@ async def pa_create_item(
         "due_at": _parse_datetime(due_at),
         "start_date": date.fromisoformat(start_date) if start_date else None,
         "due_date": date.fromisoformat(due_date) if due_date else None,
+        "event_format": event_format,
+        "event_location": event_location,
+        "event_url": event_url,
         "waiting_on": waiting_on,
         "waiting_follow_up_date": date.fromisoformat(waiting_follow_up_date) if waiting_follow_up_date else None,
         "recurrence_freq": recurrence_freq,
@@ -205,7 +228,7 @@ async def pa_create_item(
     }
     request = ItemCreate(**{k: v for k, v in fields.items() if v is not None})
     item, _created = await _authed(
-        lambda conn, uid: ItemService(ItemsRepository(conn), ActivityRepository(conn)).create(uid, request)
+        lambda conn, uid: ItemService(ItemsRepository(conn), ActivityRepository(conn), ItemIntakeNormalizer(get_settings())).create(uid, request)
     )
     return item
 
@@ -224,6 +247,9 @@ async def pa_update_item(
     due_at: str | None = None,
     start_date: str | None = None,
     due_date: str | None = None,
+    event_format: str | None = None,
+    event_location: str | None = None,
+    event_url: str | None = None,
     waiting_on: str | None = None,
     waiting_follow_up_date: str | None = None,
     recurrence_freq: str | None = None,
@@ -248,6 +274,9 @@ async def pa_update_item(
         "due_at": _parse_datetime(due_at),
         "start_date": date.fromisoformat(start_date) if start_date else None,
         "due_date": date.fromisoformat(due_date) if due_date else None,
+        "event_format": event_format,
+        "event_location": event_location,
+        "event_url": event_url,
         "waiting_on": waiting_on,
         "waiting_follow_up_date": date.fromisoformat(waiting_follow_up_date) if waiting_follow_up_date else None,
         "recurrence_freq": recurrence_freq,
@@ -521,6 +550,120 @@ async def pa_get_channels() -> dict:
 
 
 @mcp.tool()
+async def pa_list_write_targets(active_only: bool = True) -> list[dict]:
+    """List external write targets configured by the user.
+
+    Agents must call this before writing Personal Affairs data to Feishu Base
+    or another external table. Respect target_url, format_key, field_mapping,
+    and instructions; do not hard-code a Feishu Base URL or column names.
+    """
+    return await _authed(lambda conn, uid: WriteTargetsRepository(conn).list_for_user(uid, active_only))
+
+
+@mcp.tool()
+async def pa_get_write_target_presets() -> list[dict]:
+    """Return built-in write target presets for UI/agent setup flows."""
+    await _user_id()
+    return write_target_presets()
+
+
+@mcp.tool()
+async def pa_list_external_profiles(capability: str | None = None, active_only: bool = True) -> list[dict]:
+    """List user-configured external capability profiles.
+
+    Profiles describe the provider/capability/auth_ref; bindings describe the
+    concrete purpose, target_ref, format, mapping, and instructions.
+    """
+    return await _authed(lambda conn, uid: ExternalProfilesRepository(conn).list_profiles(uid, capability, active_only))
+
+
+@mcp.tool()
+async def pa_list_external_bindings(
+    purpose_key: str | None = None,
+    capability: str | None = None,
+    active_only: bool = True,
+) -> list[dict]:
+    """List configured external bindings for Agent/external automation use.
+
+    Agents must call this, or pa_resolve_external_bindings, before any external
+    read/write/sync/notify operation. Respect target_ref, format_key,
+    field_mapping, value_mapping, instructions, conflict_policy, dry_run, and
+    auth_ref; do not hard-code Feishu URLs, field names, webhook URLs, or
+    calendar ids.
+    """
+    return await _authed(
+        lambda conn, uid: ExternalProfilesRepository(conn).list_bindings(uid, purpose_key, capability, active_only)
+    )
+
+
+@mcp.tool()
+async def pa_resolve_external_bindings(
+    purpose_key: str,
+    capability: str | None = None,
+    scope_type: str = "global",
+    scope_value: str | None = None,
+) -> list[dict]:
+    """Resolve active external bindings for a purpose and optional scope.
+
+    Use purpose_key examples: item_write, calendar_sync, reminder_notify,
+    source_import, lookup. Multiple returned bindings may all be intended
+    targets; follow priority and each binding's instructions/dry_run flag.
+    """
+    return await _authed(
+        lambda conn, uid: ExternalProfilesRepository(conn).resolve_bindings(
+            uid,
+            purpose_key,
+            capability,
+            scope_type,
+            scope_value,
+        )
+    )
+
+
+@mcp.tool()
+async def pa_get_external_profile_presets() -> dict:
+    """Return built-in external profile and purpose presets for setup flows."""
+    await _user_id()
+    return {"profiles": external_profile_presets(), "purposes": external_purpose_presets()}
+
+
+@mcp.tool()
+async def pa_list_llm_profiles(active_only: bool = True) -> list[dict]:
+    """List user-configured LLM profiles.
+
+    Agents must call this, or pa_get_llm_binding, before choosing a model for
+    Personal Affairs parsing, summaries, proposals, or external formatting.
+    Respect model_name, provider_key, params, capabilities, auth_ref, and
+    instructions; do not hard-code a model name, base URL, or provider.
+    """
+    return await _authed(lambda conn, uid: LLMProfilesRepository(conn).list_profiles(uid, active_only))
+
+
+@mcp.tool()
+async def pa_get_llm_binding(
+    purpose_key: str,
+    scope_type: str = "global",
+    scope_value: str | None = None,
+) -> dict | None:
+    """Resolve the active LLM binding for a purpose and optional scope.
+
+    purpose_key examples: intake_normalization, proposal_extract, daily_brief,
+    meeting_parse, external_formatting, risk_review. Agents must follow the
+    returned profile and binding instructions before invoking an LLM.
+    """
+    return await _authed(
+        lambda conn, uid: LLMProfilesRepository(conn).resolve_binding(uid, purpose_key, scope_type, scope_value)
+    )
+
+
+@mcp.tool()
+async def pa_get_llm_profile_presets() -> dict:
+    """Return built-in LLM profile and purpose presets for setup flows."""
+    await _user_id()
+    return {"profiles": llm_profile_presets(), "purposes": llm_purpose_presets()}
+
+
+@mcp.tool()
 async def pa_reminder_health() -> dict:
     """Reminder worker health: lag, pending/retry/dead counts."""
     await _user_id()
@@ -558,6 +701,8 @@ async def pa_list_calendar(
 async def pa_create_calendar_event(
     title: str,
     scope: str,
+    intake_text: str | None = None,
+    intake_normalization: str = "llm",
     start_at: str | None = None,
     due_at: str | None = None,
     due_date: str | None = None,
@@ -565,6 +710,9 @@ async def pa_create_calendar_event(
     all_day: bool = False,
     notes: str | None = None,
     estimated_minutes: int | None = None,
+    event_format: str | None = None,
+    event_location: str | None = None,
+    event_url: str | None = None,
     reminder_timing: str | None = None,
     reminder_offset_minutes: int = 10,
     client_request_id: str | None = None,
@@ -575,9 +723,14 @@ async def pa_create_calendar_event(
     all_day=true with due_date/start_date (ISO dates). Optionally attach a
     reminder (timing: at_start|before_start|before_due).
     """
+    source_text = intake_text if intake_text is not None else title
     fields = {
         "title": title,
         "scope": ItemScope(scope),
+        "intake_text": source_text,
+        "intake_scope_source": "explicit",
+        "intake_origin": "agent",
+        "intake_normalization": intake_normalization,
         "all_day": all_day,
         "start_at": _parse_datetime(start_at),
         "due_at": _parse_datetime(due_at),
@@ -585,13 +738,16 @@ async def pa_create_calendar_event(
         "due_date": date.fromisoformat(due_date) if due_date else None,
         "notes": notes,
         "estimated_minutes": estimated_minutes,
+        "event_format": event_format,
+        "event_location": event_location,
+        "event_url": event_url,
         "client_request_id": client_request_id,
     }
     request = ItemCreate(**{k: v for k, v in fields.items() if v is not None})
 
     def _run(conn, uid):
         items = ItemsRepository(conn)
-        item, _created = ItemService(items, ActivityRepository(conn)).create(uid, request)
+        item, _created = ItemService(items, ActivityRepository(conn), ItemIntakeNormalizer(get_settings())).create(uid, request)
         if reminder_timing:
             ReminderService(RemindersRepository(conn), items, get_settings()).upsert(
                 uid,
@@ -643,9 +799,15 @@ async def today_reminders_resource() -> str:
 @mcp.prompt()
 def pa_daily_brief() -> str:
     return (
-        "You are the user's personal affairs assistant. Build a concise daily brief: "
+        "You are the user's EventFlowOS assistant. Build a concise daily brief: "
         "query pa_list_deliveries(unseen=True) for pending reminders, pa_list_items for "
         "today's work/personal items, then propose a prioritized action plan. "
+        "If the user asks to write or sync data to Feishu Base or another external table, "
+        "first call pa_resolve_external_bindings or pa_list_write_targets and follow the user's "
+        "configured target_ref/target_url, format_key, mappings, conflict policy, and instructions "
+        "instead of using hard-coded presets. "
+        "If choosing an LLM for parsing, summarizing, proposing, or formatting, first call "
+        "pa_get_llm_binding for the relevant purpose and follow the configured profile. "
         "Prefer Chinese output."
     )
 

@@ -20,7 +20,7 @@ class ProjectsRepository:
         self.conn = conn
 
     def list_projects(self, user_id: UUID, include_archived: bool = False, limit: int = 100) -> list[dict]:
-        archived_sql = "" if include_archived else "AND archived_at IS NULL"
+        archived_sql = "" if include_archived else "AND p.archived_at IS NULL"
         return list(
             self.conn.execute(
                 f"""
