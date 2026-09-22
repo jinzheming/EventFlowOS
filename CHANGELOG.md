@@ -17,6 +17,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 ### Changed
 
 - Public project branding now uses EventFlowOS while internal package, command, and environment-variable names remain compatible with the existing `personal_affairs` runtime.
+- The current development line transitions to Apache License 2.0 with source attribution in `NOTICE`; earlier commits and copies distributed before the transition remain under their original MIT grants.
 - Production OpenAPI and interactive docs are disabled by default.
 - Production API startup now requires explicit Host header allowlisting through `PERSONAL_AFFAIRS_ALLOWED_HOSTS`.
 - Nginx examples include security headers, request body limits, and edge rate limits for login, token creation, and webhook creation paths.
