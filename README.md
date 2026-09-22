@@ -1,12 +1,14 @@
 # EventFlowOS
 
-Self-hosted event-flow operating system for work items, personal tasks, projects, calendar reminders, outbound webhooks, and agent-native MCP access.
+Self-hosted personal affairs management OS for work items, personal tasks, projects, calendar reminders, outbound webhooks, and agent-native MCP access.
 
 ## What It Is
 
 - A personal operations system for capturing tasks, work items, projects, reminders, calendar feeds, and lightweight agent proposals.
 - A FastAPI backend with PostgreSQL migrations, reminder and webhook workers, and an MCP server for agent-native access.
 - A React/Vite web client designed for a single operator's self-hosted deployment.
+
+See `docs/development-status.md` for the current categorized development status and product boundary.
 
 ## What It Is Not
 
@@ -18,6 +20,16 @@ Self-hosted event-flow operating system for work items, personal tasks, projects
 
 EventFlowOS is an early-preview, self-hosted, single-user application. It is suitable for personal deployments where the operator controls the runtime environment, database, and reverse proxy. It is not yet hardened or reviewed as a multi-tenant SaaS product.
 
+## License and Attribution
+
+Starting with this licensing transition, EventFlowOS is released under the [Apache License, Version 2.0](LICENSE). Commercial use, modification, distribution, sublicensing, and sale are permitted, subject to the license's conditions.
+
+Earlier commits and any copies distributed before this transition were released under the MIT License. Those existing MIT grants remain in effect; this transition does not revoke them.
+
+When creating a fork or redistributing EventFlowOS, retain both [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE), including the original project URL. Keeping this attribution helps users identify the upstream EventFlowOS project and does not require changes to a product's branding or user interface.
+
+The EventFlowOS name and logo are not licensed under Apache-2.0. Forks and products must not imply official endorsement or affiliation without permission.
+
 ## Repository Layout
 
 - `backend/` - FastAPI API, PostgreSQL migrations, reminder/webhook workers, and MCP server.
@@ -28,6 +40,7 @@ EventFlowOS is an early-preview, self-hosted, single-user application. It is sui
 
 See `docs/deployment.md` for the production boundary, security checklist, and backup/restore runbook.
 See `docs/open-source-readiness.md` for the current release-candidate readiness notes and residual risks.
+See `docs/development-status.md` for a categorized snapshot of completed modules, remaining work, and suggested GitHub metadata.
 
 ## Local Development
 
