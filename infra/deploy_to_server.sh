@@ -36,7 +36,7 @@ export PERSONAL_AFFAIRS_RUNTIME_ENV_FILE="$TASK_ENV_FILE"
 export PERSONAL_AFFAIRS_API_IMAGE="personal-affairs-api:$TASK_RELEASE_TAG"
 export PERSONAL_AFFAIRS_WEB_IMAGE="personal-affairs-web:$TASK_RELEASE_TAG"
 
-docker compose -f "$TASK_COMPOSE_FILE" config >/dev/null
+docker compose -p personal-affairs -f "$TASK_COMPOSE_FILE" config >/dev/null
 
 docker build \
   "${TASK_PROXY_ARGS[@]}" \
@@ -57,7 +57,7 @@ docker build \
   .
 
 docker run --rm --network host --env-file "$TASK_ENV_FILE" "$PERSONAL_AFFAIRS_API_IMAGE" personal-affairs-migrate
-docker compose -f "$TASK_COMPOSE_FILE" up -d
+docker compose -p personal-affairs -f "$TASK_COMPOSE_FILE" up -d
 
 for TASK_ATTEMPT in {1..20}; do
   if curl -fsS http://127.0.0.1:18098/api/v1/health >/dev/null; then

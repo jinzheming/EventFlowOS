@@ -2,3 +2,4 @@
 
 - [2026-09-07 Development status](../development-status.md) - categorized status for the personal affairs management product, covering core items, reminders, projects, frontend, backend/data, Agent integrations, deployment, verification, and next priorities.
 - [2026-08-24 Agent-native context ingestion and human handoff design](plans/2026-08-24-agent-native-context-and-approval-design.md) - first-version Feishu IM text ingestion, Tencent Meeting invite parsing with optional server-side read-only `tmeet` completion, `agent_proposals` approval queue, L1 whitelist, read-only executive briefing/free-slot tools, and deferred automation boundaries.
+- [2026-09-21 Virtual workspace and timeline analysis design](plans/2026-09-21-virtual-workspace-analysis-design.md) - grill-with-doc requirements and implementation boundary for cross-project virtual workspaces, chronological evidence packs, and read-only MCP analysis queries.

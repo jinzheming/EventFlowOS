@@ -1,5 +1,7 @@
 # EventFlowOS 开发现状
 
+详细开发需求、接口契约和验收标准见 [development-requirements.md](development-requirements.md)。
+
 更新日期：2026-09-07
 
 ## 范围声明
@@ -96,6 +98,7 @@ EventFlowOS 在当前仓库中指「个人事务管理系统」：围绕个人�
 - 腾讯会议邀请解析已能提取主题、时间、会议号、密码、入会链接；`tmeet` 只作为后端只读增强，默认关闭。
 - MCP server 已暴露事项、people、提醒、日历、会议解析、提案审批、executive briefing、free slot 等工具。
 - Outbound webhook 通过 event outbox + worker 形成至少一次投递链路，并默认拒绝不安全目标地址。
+- **设计中**：以工作任务为聚合单位的虚拟 Workspace 与时间线证据查询；项目本身作为内置 Project Workspace，跨项目按任务集合组合，并通过只读 MCP 提供给 Agent。当前仅完成需求与前后端契约设计，尚未迁移或实现。
 
 后续建议：
 
@@ -131,3 +134,4 @@ EventFlowOS 在当前仓库中指「个人事务管理系统」：围绕个人�
 3. **提醒可靠性面板**：把 delivery、worker、channel、retry、dead letter 的状态集中到设置或诊断页。
 4. **端到端验证**：补充 Playwright/浏览器级用例，覆盖登录、创建事项、提醒、日历拖拽、proposal 审批。
 5. **生产发布门槛**：从新 clone 重新跑完整验证，确认 GitHub branch protection、secret scanning、Dependabot alerts 已开启后再打 tag。
+6. **虚拟 Workspace**：按 [设计文档](aegis/plans/2026-09-21-virtual-workspace-analysis-design.md) 实现跨项目时间线查询、证据包和只读 MCP 工具；前后端共用同一查询契约。
