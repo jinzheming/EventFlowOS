@@ -12,6 +12,7 @@ from psycopg import Connection
 from personal_affairs.api.dependencies import settings
 from personal_affairs.api.schemas import AgentProposalCreate
 from personal_affairs.application.agent_proposal_service import AgentProposalService
+from personal_affairs.application.integration_settings import settings_for_user
 from personal_affairs.application.meeting_invite_parser import (
     MeetingInviteParseResult,
     merge_tmeet_meeting_details,
@@ -80,7 +81,8 @@ async def feishu_im_events(
                     "proposal_id": ingest.get("proposal_id"),
                 }
 
-            proposal = _proposal_from_text(text, message["message_id"], cfg)
+            user_cfg = settings_for_user(conn, user["id"], cfg)
+            proposal = _proposal_from_text(text, message["message_id"], user_cfg)
             created = AgentProposalService(
                 AgentProposalsRepository(conn),
                 ItemsRepository(conn),

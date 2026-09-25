@@ -11,9 +11,23 @@ from personal_affairs.api.dependencies import (
     settings,
 )
 from personal_affairs.api.problem_details import not_found
-from personal_affairs.api.schemas import ItemCreate, ItemOut, ItemPatch, ReminderOut, ReminderPut
+from personal_affairs.api.schemas import (
+    ItemCreate,
+    ItemOut,
+    ItemPatch,
+    MeetingParseOut,
+    MeetingParseRequest,
+    ReminderOut,
+    ReminderPut,
+)
+from personal_affairs.application.integration_settings import settings_for_user
 from personal_affairs.application.item_service import ItemService
+from personal_affairs.application.meeting_invite_parser import (
+    merge_tmeet_meeting_details,
+    parse_tencent_meeting_invite,
+)
 from personal_affairs.application.reminder_service import ReminderService
+from personal_affairs.application.tmeet_adapter import lookup_tencent_meeting
 from personal_affairs.config import Settings
 from personal_affairs.domain.enums import ItemScope, ItemStatus
 from personal_affairs.storage.repositories.activity import ActivityRepository
@@ -54,6 +68,33 @@ def create_item(
     _etag(response, item)
     response.status_code = 201 if created else 200
     return item
+
+
+@router.post("/parse-meeting", response_model=MeetingParseOut)
+def parse_meeting_input(request: MeetingParseRequest, cfg: Settings = Depends(settings), user_id: UUID = Depends(current_user_id), conn: Connection = Depends(db_conn)) -> dict:
+    """Return a reviewable meeting preview without creating an item."""
+    cfg = settings_for_user(conn, user_id, cfg)
+    parsed = parse_tencent_meeting_invite(request.raw_text, request.timezone or cfg.default_timezone)
+    lookup = None
+    if request.enrich_tmeet and (parsed.meeting_id or parsed.meeting_code):
+        result = lookup_tencent_meeting(cfg, meeting_id=parsed.meeting_id, meeting_code=parsed.meeting_code)
+        lookup = result.audit
+        if result.details:
+            parsed = merge_tmeet_meeting_details(parsed, result.details, request.timezone or cfg.default_timezone)
+    return {
+        "proposed_item": parsed.proposed_item,
+        "title": parsed.title,
+        "start_at": parsed.start_at,
+        "due_at": parsed.due_at,
+        "estimated_minutes": parsed.estimated_minutes,
+        "meeting_id": parsed.meeting_id,
+        "meeting_code": parsed.meeting_code,
+        "join_url": parsed.join_url,
+        "missing_fields": parsed.missing_fields,
+        "confidence": parsed.confidence,
+        "needs_confirmation": bool(parsed.missing_fields or parsed.confidence < 0.85),
+        "tmeet_lookup": lookup,
+    }
 
 
 @router.get("/{item_id}", response_model=ItemOut)

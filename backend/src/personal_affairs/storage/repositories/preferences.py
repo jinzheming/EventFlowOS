@@ -18,7 +18,9 @@ class PreferencesRepository:
             VALUES (%s, %s)
             ON CONFLICT (user_id) DO NOTHING
             RETURNING timezone, work_filters, personal_filters, calendar_filters, weekly_review_enabled, desktop_notifications, identity_scope_rules,
-                   digest_morning_enabled, digest_evening_enabled, digest_morning_time, digest_evening_time, ics_token
+                   digest_morning_enabled, digest_evening_enabled, digest_morning_time, digest_evening_time, ics_token,
+                   amap_enabled, (amap_key IS NOT NULL AND amap_key <> '') AS amap_key_configured, amap_default_city, amap_timeout_seconds,
+                   tmeet_enabled, tmeet_bin, tmeet_home, tmeet_timeout_seconds, tmeet_allowed_commands
             """,
             (user_id, default_timezone),
         ).fetchone()
@@ -27,7 +29,9 @@ class PreferencesRepository:
         return self.conn.execute(
             """
             SELECT timezone, work_filters, personal_filters, calendar_filters, weekly_review_enabled, desktop_notifications, identity_scope_rules,
-                   digest_morning_enabled, digest_evening_enabled, digest_morning_time, digest_evening_time, ics_token
+                   digest_morning_enabled, digest_evening_enabled, digest_morning_time, digest_evening_time, ics_token,
+                   amap_enabled, (amap_key IS NOT NULL AND amap_key <> '') AS amap_key_configured, amap_default_city, amap_timeout_seconds,
+                   tmeet_enabled, tmeet_bin, tmeet_home, tmeet_timeout_seconds, tmeet_allowed_commands
             FROM personal_affairs.user_preferences
             WHERE user_id = %s
             """,
@@ -36,7 +40,7 @@ class PreferencesRepository:
 
     def patch(self, user_id: UUID, patch: dict[str, Any], default_timezone: str) -> dict:
         self.get(user_id, default_timezone)
-        allowed = {"timezone", "work_filters", "personal_filters", "calendar_filters", "weekly_review_enabled", "desktop_notifications", "identity_scope_rules", "digest_morning_enabled", "digest_evening_enabled", "digest_morning_time", "digest_evening_time"}
+        allowed = {"timezone", "work_filters", "personal_filters", "calendar_filters", "weekly_review_enabled", "desktop_notifications", "identity_scope_rules", "digest_morning_enabled", "digest_evening_enabled", "digest_morning_time", "digest_evening_time", "amap_enabled", "amap_key", "amap_default_city", "amap_timeout_seconds", "tmeet_enabled", "tmeet_bin", "tmeet_home", "tmeet_timeout_seconds", "tmeet_allowed_commands"}
         updates: list[str] = []
         params: list[Any] = []
         for key, value in patch.items():
@@ -53,7 +57,9 @@ class PreferencesRepository:
             SET {', '.join(updates)}
             WHERE user_id = %s
             RETURNING timezone, work_filters, personal_filters, calendar_filters, weekly_review_enabled, desktop_notifications, identity_scope_rules,
-                   digest_morning_enabled, digest_evening_enabled, digest_morning_time, digest_evening_time, ics_token
+                   digest_morning_enabled, digest_evening_enabled, digest_morning_time, digest_evening_time, ics_token,
+                   amap_enabled, (amap_key IS NOT NULL AND amap_key <> '') AS amap_key_configured, amap_default_city, amap_timeout_seconds,
+                   tmeet_enabled, tmeet_bin, tmeet_home, tmeet_timeout_seconds, tmeet_allowed_commands
             """,
             params,
         ).fetchone()

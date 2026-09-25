@@ -51,6 +51,8 @@ def test_mcp_tool_surface() -> None:
     names = {t.name for t in tools}
     expected = {
         "pa_list_items",
+        "pa_set_item_relations",
+        "pa_get_project_context",
         "pa_get_item",
         "pa_create_item",
         "pa_update_item",

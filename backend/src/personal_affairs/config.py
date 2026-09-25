@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     tmeet_timeout_seconds: float = 8.0
     tmeet_home: str | None = Field(default=None, repr=False)
     tmeet_allowed_commands: str = "meeting:get"
+    amap_enabled: bool = False
+    amap_key: str | None = Field(default=None, repr=False)
+    amap_default_city: str | None = None
+    amap_timeout_seconds: float = 3.0
 
 
 @lru_cache

@@ -77,6 +77,12 @@ def _item_event(item: dict) -> list[str]:
                 lines.append(f"DTEND:{_utc_stamp(start + timedelta(minutes=minutes))}")
     if item["status"] == "done":
         lines.append("STATUS:COMPLETED")
+    if item.get("event_location"):
+        lines.append(f"LOCATION:{_escape(item['event_location'])}")
+    if item.get("event_url"):
+        lines.append(f"URL:{_escape(item['event_url'])}")
+    if item.get("event_format"):
+        lines.append(f"X-EVENT-FORMAT:{_escape(item['event_format'])}")
     rule = _rrule(item)
     if rule:
         lines.append(rule)
@@ -93,7 +99,7 @@ def build_feed(conn: Connection, user_id: UUID) -> str:
             SELECT id, title, notes, status, priority, all_day,
                    start_at, due_at, start_date, due_date,
                    recurrence_freq, recurrence_interval, recurrence_until, recurrence_count,
-                   estimated_minutes, version, updated_at
+                   estimated_minutes, event_format, event_location, event_url, version, updated_at
             FROM personal_affairs.items
             WHERE user_id = %s AND archived_at IS NULL AND deleted_at IS NULL
               AND status <> 'cancelled'

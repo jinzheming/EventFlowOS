@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from decimal import Decimal
 from enum import Enum
 from hashlib import sha256
 from json import dumps
@@ -24,4 +25,6 @@ def json_safe(value: Any) -> Any:
         return value.isoformat()
     if isinstance(value, Enum):
         return value.value
+    if isinstance(value, Decimal):
+        return float(value)
     return value

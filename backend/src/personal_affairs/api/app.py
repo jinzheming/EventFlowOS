@@ -17,6 +17,7 @@ from personal_affairs.api.routes import (
     habits,
     integrations_feishu,
     items,
+    locations,
     people,
     preferences,
     project_groups,
@@ -24,6 +25,7 @@ from personal_affairs.api.routes import (
     push,
     reminders,
     saved_views,
+    schedule,
     system,
     tags,
     webhooks,
@@ -99,6 +101,8 @@ def create_app() -> FastAPI:
     app.include_router(projects.router, prefix="/api/v1")
     app.include_router(project_groups.router, prefix="/api/v1")
     app.include_router(calendar.router, prefix="/api/v1")
+    app.include_router(schedule.router, prefix="/api/v1")
+    app.include_router(locations.router, prefix="/api/v1")
     app.include_router(reminders.router, prefix="/api/v1")
     app.include_router(preferences.router, prefix="/api/v1")
     app.include_router(tags.router, prefix="/api/v1")

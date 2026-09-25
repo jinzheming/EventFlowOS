@@ -12,7 +12,8 @@ from personal_affairs.storage.repositories.tags import TagsRepository
 
 ITEM_COLUMNS = """
     i.id, i.scope, i.project_id, p.name AS project_name, i.title, i.notes, i.status, i.priority,
-    i.all_day, i.start_at, i.due_at, i.start_date, i.due_date, i.waiting_on, i.waiting_follow_up_date,
+    i.all_day, i.start_at, i.due_at, i.start_date, i.due_date,
+    i.event_format, i.event_location, i.event_url, i.location_name, i.location_address, i.location_provider, i.location_poi_id, i.location_latitude, i.location_longitude, i.location_confidence, i.location_updated_at, i.waiting_on, i.waiting_follow_up_date,
     i.recurrence_freq, i.recurrence_interval, i.recurrence_until, i.recurrence_count, i.estimated_minutes,
     i.completed_at, i.cancelled_at, i.archived_at, i.deleted_at,
     i.created_by_actor, i.updated_by_actor, i.source_context, i.execution_output,
@@ -21,7 +22,8 @@ ITEM_COLUMNS = """
 
 ITEM_RETURN_COLUMNS = """
     id, scope, project_id, NULL::text AS project_name, title, notes, status, priority,
-    all_day, start_at, due_at, start_date, due_date, waiting_on, waiting_follow_up_date,
+    all_day, start_at, due_at, start_date, due_date,
+    event_format, event_location, event_url, location_name, location_address, location_provider, location_poi_id, location_latitude, location_longitude, location_confidence, location_updated_at, waiting_on, waiting_follow_up_date,
     recurrence_freq, recurrence_interval, recurrence_until, recurrence_count, estimated_minutes,
     completed_at, cancelled_at, archived_at, deleted_at,
     created_by_actor, updated_by_actor, source_context, execution_output,
@@ -96,8 +98,11 @@ class ItemsRepository:
             params.append(status.value)
         if search and search.strip():
             term = re.sub(r"([%_\\])", r"\\\1", search.strip())
-            where.append("(i.title ILIKE %s ESCAPE '\\' OR i.notes ILIKE %s ESCAPE '\\')")
-            params.extend([f"%{term}%", f"%{term}%"])
+            where.append(
+                "(i.title ILIKE %s ESCAPE '\\' OR i.notes ILIKE %s ESCAPE '\\' OR "
+                "i.event_location ILIKE %s ESCAPE '\\' OR i.event_url ILIKE %s ESCAPE '\\')"
+            )
+            params.extend([f"%{term}%", f"%{term}%", f"%{term}%", f"%{term}%"])
         params.append(limit)
         rows = list(
             self.conn.execute(
@@ -114,7 +119,8 @@ class ItemsRepository:
             ).fetchall()
         )
         TagsRepository(self.conn).attach_tags(user_id, rows)
-        return PeopleRepository(self.conn).attach_people(user_id, rows)
+        rows = PeopleRepository(self.conn).attach_people(user_id, rows)
+        return self.attach_relations(user_id, rows)
 
     def get_item(self, user_id: UUID, item_id: UUID) -> dict | None:
         row = self.conn.execute(
@@ -129,17 +135,89 @@ class ItemsRepository:
         if row:
             TagsRepository(self.conn).attach_tags(user_id, [row])
             PeopleRepository(self.conn).attach_people(user_id, [row])
+            self.attach_relations(user_id, [row])
         return row
+
+    def attach_relations(self, user_id: UUID, rows: list[dict]) -> list[dict]:
+        if not rows:
+            return rows
+        ids = [row["id"] for row in rows]
+        relation_rows = self.conn.execute(
+            """
+            SELECT predecessor_item_id, successor_item_id
+            FROM personal_affairs.item_relations
+            WHERE user_id = %s AND (predecessor_item_id = ANY(%s) OR successor_item_id = ANY(%s))
+            ORDER BY created_at, predecessor_item_id, successor_item_id
+            """,
+            (user_id, ids, ids),
+        ).fetchall()
+        by_id = {
+            row["id"]: {"predecessor_item_ids": [], "successor_item_ids": []}
+            for row in rows
+        }
+        for relation in relation_rows:
+            if relation["successor_item_id"] in by_id:
+                by_id[relation["successor_item_id"]]["predecessor_item_ids"].append(relation["predecessor_item_id"])
+            if relation["predecessor_item_id"] in by_id:
+                by_id[relation["predecessor_item_id"]]["successor_item_ids"].append(relation["successor_item_id"])
+        for row in rows:
+            row.update(by_id[row["id"]])
+        return rows
+
+    def replace_item_relations(
+        self,
+        user_id: UUID,
+        item_id: UUID,
+        predecessor_item_ids: list[UUID],
+        successor_item_ids: list[UUID],
+    ) -> None:
+        predecessor_item_ids = list(dict.fromkeys(predecessor_item_ids))
+        successor_item_ids = list(dict.fromkeys(successor_item_ids))
+        if item_id in predecessor_item_ids or item_id in successor_item_ids:
+            raise ValueError("an item cannot relate to itself")
+        related_ids = list(dict.fromkeys(predecessor_item_ids + successor_item_ids))
+        if related_ids:
+            rows = self.conn.execute(
+                """
+                SELECT id, project_id FROM personal_affairs.items
+                WHERE user_id = %s AND id = ANY(%s) AND deleted_at IS NULL
+                """,
+                (user_id, related_ids),
+            ).fetchall()
+            source = self.conn.execute(
+                "SELECT project_id FROM personal_affairs.items WHERE user_id = %s AND id = %s",
+                (user_id, item_id),
+            ).fetchone()
+            if not source or len(rows) != len(related_ids):
+                raise ValueError("related items must belong to the same user and exist")
+            if any(row["project_id"] != source["project_id"] for row in rows):
+                raise ValueError("related items must belong to the same project")
+        self.conn.execute(
+            "DELETE FROM personal_affairs.item_relations WHERE user_id = %s AND (predecessor_item_id = %s OR successor_item_id = %s)",
+            (user_id, item_id, item_id),
+        )
+        if predecessor_item_ids or successor_item_ids:
+            values = [(user_id, predecessor, item_id) for predecessor in predecessor_item_ids]
+            values.extend((user_id, item_id, successor) for successor in successor_item_ids)
+            for value in values:
+                self.conn.execute(
+                    "INSERT INTO personal_affairs.item_relations(user_id, predecessor_item_id, successor_item_id) VALUES (%s, %s, %s)",
+                    value,
+                )
+
+    def list_project_context(self, user_id: UUID, project_id: UUID, limit: int = 500) -> list[dict]:
+        return self.list_items(user_id, None, False, project_id, None, limit)
 
     def create_item(self, user_id: UUID, payload: dict[str, Any]) -> dict:
         row = self.conn.execute(
             f"""
             INSERT INTO personal_affairs.items(
                 user_id, scope, project_id, title, notes, status, priority, all_day,
-                start_at, due_at, start_date, due_date, waiting_on, waiting_follow_up_date,
+                start_at, due_at, start_date, due_date,
+                event_format, event_location, event_url, location_name, location_address, location_provider, location_poi_id, location_latitude, location_longitude, location_confidence, location_updated_at, waiting_on, waiting_follow_up_date,
                 recurrence_freq, recurrence_interval, recurrence_until, recurrence_count, estimated_minutes,
                 created_by_actor, updated_by_actor, source_context, execution_output
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING {ITEM_RETURN_COLUMNS}
             """,
             (
@@ -155,6 +233,11 @@ class ItemsRepository:
                 payload.get("due_at"),
                 payload.get("start_date"),
                 payload.get("due_date"),
+                payload.get("event_format"),
+                payload.get("event_location"),
+                payload.get("event_url"),
+                payload.get("location_name"), payload.get("location_address"), payload.get("location_provider"), payload.get("location_poi_id"),
+                payload.get("location_latitude"), payload.get("location_longitude"), payload.get("location_confidence"), payload.get("location_updated_at"),
                 payload.get("waiting_on"),
                 payload.get("waiting_follow_up_date"),
                 payload.get("recurrence_freq"),
@@ -184,6 +267,10 @@ class ItemsRepository:
             "due_at",
             "start_date",
             "due_date",
+            "event_format",
+            "event_location",
+            "event_url",
+            "location_name", "location_address", "location_provider", "location_poi_id", "location_latitude", "location_longitude", "location_confidence", "location_updated_at",
             "waiting_on",
             "waiting_follow_up_date",
             "recurrence_freq",

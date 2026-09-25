@@ -33,10 +33,17 @@ from personal_affairs.application.agent_context_service import (
 )
 from personal_affairs.application.agent_proposal_service import AgentProposalService
 from personal_affairs.application.calendar_query_service import CalendarQueryService
+from personal_affairs.application.integration_settings import settings_for_user
 from personal_affairs.application.item_service import ItemService
-from personal_affairs.application.meeting_invite_parser import parse_tencent_meeting_invite
+from personal_affairs.application.location_service import AMapClient
+from personal_affairs.application.meeting_invite_parser import (
+    merge_tmeet_meeting_details,
+    parse_tencent_meeting_invite,
+)
 from personal_affairs.application.people_service import PeopleService
 from personal_affairs.application.reminder_service import ReminderService
+from personal_affairs.application.schedule_feasibility import assess_schedule_feasibility
+from personal_affairs.application.tmeet_adapter import lookup_tencent_meeting
 from personal_affairs.config import get_settings
 from personal_affairs.domain.enums import AgentProposalState, ItemScope, ItemStatus, ReminderTiming
 from personal_affairs.storage.database import connection
@@ -151,6 +158,83 @@ async def pa_list_items(
 
 
 @mcp.tool()
+async def pa_set_item_relations(
+    item_id: str,
+    predecessor_item_ids: list[str] | None = None,
+    successor_item_ids: list[str] | None = None,
+) -> dict | None:
+    """Set an item's manual predecessor and successor relations."""
+    item_uuid = UUID(item_id)
+    predecessors = [UUID(value) for value in (predecessor_item_ids or [])]
+    successors = [UUID(value) for value in (successor_item_ids or [])]
+
+    def _run(conn, uid):
+        repo = ItemsRepository(conn)
+        if not repo.get_item(uid, item_uuid):
+            return None
+        repo.replace_item_relations(uid, item_uuid, predecessors, successors)
+        return repo.get_item(uid, item_uuid)
+
+    return await _authed(_run)
+
+
+@mcp.tool()
+async def pa_get_project_context(
+    project_id: str,
+    search: str | None = None,
+    statuses: list[str] | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    include_done: bool = True,
+    limit: int = 500,
+) -> dict:
+    """Return filtered project items in chronological order with logical relation edges."""
+    project_uuid = UUID(project_id)
+    limit = max(1, min(limit, 500))
+
+    def _run(conn, uid):
+        repo = ItemsRepository(conn)
+        project = ProjectsRepository(conn).get_project(uid, project_uuid)
+        if not project:
+            return {"project": None, "items": [], "relations": []}
+        items = repo.list_project_context(uid, project_uuid, limit=500)
+        wanted_statuses = set(statuses or [])
+        if not include_done:
+            wanted_statuses.discard("done")
+            wanted_statuses.add("__exclude_done__")
+        if wanted_statuses:
+            items = [item for item in items if (item["status"] not in wanted_statuses if "__exclude_done__" in wanted_statuses else item["status"] in wanted_statuses)]
+        if search:
+            term = search.casefold()
+            items = [item for item in items if term in (item.get("title") or "").casefold() or term in (item.get("notes") or "").casefold()]
+        def event_time(item):
+            return item.get("start_at") or item.get("due_at") or item.get("start_date") or item.get("due_date") or item.get("created_at")
+        if start:
+            items = [item for item in items if str(event_time(item)) >= start]
+        if end:
+            items = [item for item in items if str(event_time(item)) <= end]
+        items.sort(key=lambda item: (str(event_time(item)), str(item["id"])))
+        items = items[:limit]
+        item_ids = {item["id"] for item in items}
+        relations = [
+            {"predecessor_item_id": predecessor, "successor_item_id": successor}
+            for item in items
+            for predecessor in item.get("predecessor_item_ids", [])
+            for successor in ([item["id"]] if predecessor in item_ids else [])
+        ]
+        relations.extend(
+            {"predecessor_item_id": item["id"], "successor_item_id": successor}
+            for item in items
+            for successor in item.get("successor_item_ids", [])
+            if successor in item_ids
+        )
+        unique_relations = {(str(r["predecessor_item_id"]), str(r["successor_item_id"])): r for r in relations}
+        return {"project": project, "items": items, "relations": list(unique_relations.values())}
+
+    return await _authed(_run)
+
+
+@mcp.tool()
 async def pa_get_item(item_id: str) -> dict | None:
     """Get a single item by id (includes tags, people, project name)."""
     return await _authed(lambda conn, uid: ItemsRepository(conn).get_item(uid, UUID(item_id)))
@@ -169,6 +253,16 @@ async def pa_create_item(
     due_at: str | None = None,
     start_date: str | None = None,
     due_date: str | None = None,
+    event_format: str | None = None,
+    event_location: str | None = None,
+    event_url: str | None = None,
+    location_name: str | None = None,
+    location_address: str | None = None,
+    location_provider: str | None = None,
+    location_poi_id: str | None = None,
+    location_latitude: float | None = None,
+    location_longitude: float | None = None,
+    location_confidence: float | None = None,
     waiting_on: str | None = None,
     waiting_follow_up_date: str | None = None,
     recurrence_freq: str | None = None,
@@ -178,6 +272,8 @@ async def pa_create_item(
     estimated_minutes: int | None = None,
     tag_ids: list[str] | None = None,
     people: list[dict] | None = None,
+    predecessor_item_ids: list[str] | None = None,
+    successor_item_ids: list[str] | None = None,
     client_request_id: str | None = None,
 ) -> dict:
     """Create an item (idempotent via client_request_id). scope: work|personal."""
@@ -192,6 +288,16 @@ async def pa_create_item(
         "due_at": _parse_datetime(due_at),
         "start_date": date.fromisoformat(start_date) if start_date else None,
         "due_date": date.fromisoformat(due_date) if due_date else None,
+        "event_format": event_format,
+        "event_location": event_location,
+        "event_url": event_url,
+        "location_name": location_name,
+        "location_address": location_address,
+        "location_provider": location_provider,
+        "location_poi_id": location_poi_id,
+        "location_latitude": location_latitude,
+        "location_longitude": location_longitude,
+        "location_confidence": location_confidence,
         "waiting_on": waiting_on,
         "waiting_follow_up_date": date.fromisoformat(waiting_follow_up_date) if waiting_follow_up_date else None,
         "recurrence_freq": recurrence_freq,
@@ -201,6 +307,8 @@ async def pa_create_item(
         "estimated_minutes": estimated_minutes,
         "tag_ids": [UUID(t) for t in tag_ids] if tag_ids else None,
         "people": people,
+        "predecessor_item_ids": [UUID(value) for value in predecessor_item_ids] if predecessor_item_ids else None,
+        "successor_item_ids": [UUID(value) for value in successor_item_ids] if successor_item_ids else None,
         "client_request_id": client_request_id,
     }
     request = ItemCreate(**{k: v for k, v in fields.items() if v is not None})
@@ -224,6 +332,16 @@ async def pa_update_item(
     due_at: str | None = None,
     start_date: str | None = None,
     due_date: str | None = None,
+    event_format: str | None = None,
+    event_location: str | None = None,
+    event_url: str | None = None,
+    location_name: str | None = None,
+    location_address: str | None = None,
+    location_provider: str | None = None,
+    location_poi_id: str | None = None,
+    location_latitude: float | None = None,
+    location_longitude: float | None = None,
+    location_confidence: float | None = None,
     waiting_on: str | None = None,
     waiting_follow_up_date: str | None = None,
     recurrence_freq: str | None = None,
@@ -233,6 +351,8 @@ async def pa_update_item(
     estimated_minutes: int | None = None,
     tag_ids: list[str] | None = None,
     people: list[dict] | None = None,
+    predecessor_item_ids: list[str] | None = None,
+    successor_item_ids: list[str] | None = None,
 ) -> dict | None:
     """Update an item. Pass if_match = current item version (e.g. 'v3')."""
     item_id_uuid = UUID(item_id)
@@ -248,6 +368,16 @@ async def pa_update_item(
         "due_at": _parse_datetime(due_at),
         "start_date": date.fromisoformat(start_date) if start_date else None,
         "due_date": date.fromisoformat(due_date) if due_date else None,
+        "event_format": event_format,
+        "event_location": event_location,
+        "event_url": event_url,
+        "location_name": location_name,
+        "location_address": location_address,
+        "location_provider": location_provider,
+        "location_poi_id": location_poi_id,
+        "location_latitude": location_latitude,
+        "location_longitude": location_longitude,
+        "location_confidence": location_confidence,
         "waiting_on": waiting_on,
         "waiting_follow_up_date": date.fromisoformat(waiting_follow_up_date) if waiting_follow_up_date else None,
         "recurrence_freq": recurrence_freq,
@@ -257,6 +387,8 @@ async def pa_update_item(
         "estimated_minutes": estimated_minutes,
         "tag_ids": [UUID(t) for t in tag_ids] if tag_ids else None,
         "people": people,
+        "predecessor_item_ids": [UUID(value) for value in predecessor_item_ids] if predecessor_item_ids is not None else None,
+        "successor_item_ids": [UUID(value) for value in successor_item_ids] if successor_item_ids is not None else None,
     }
     request = ItemPatch(**{k: v for k, v in patch_fields.items() if v is not None})
 
@@ -362,6 +494,76 @@ async def pa_parse_meeting_invite(raw_text: str, timezone: str | None = None) ->
         "confidence": parsed.confidence,
         "proposed_item": parsed.proposed_item,
     }
+
+
+@mcp.tool()
+async def pa_parse_meeting_input(
+    raw_text: str,
+    timezone: str | None = None,
+    enrich_tmeet: bool = True,
+) -> dict:
+    """Parse a meeting link/invite and optionally enrich it through read-only tmeet CLI."""
+    def _run(conn, uid):
+        cfg = settings_for_user(conn, uid, get_settings())
+        effective_timezone = timezone or cfg.default_timezone
+        parsed = parse_tencent_meeting_invite(raw_text, effective_timezone)
+        lookup = None
+        if enrich_tmeet and (parsed.meeting_id or parsed.meeting_code):
+            result = lookup_tencent_meeting(cfg, meeting_id=parsed.meeting_id, meeting_code=parsed.meeting_code)
+            lookup = result.audit
+            if result.details:
+                parsed = merge_tmeet_meeting_details(parsed, result.details, effective_timezone)
+        return {
+            "title": parsed.title,
+            "start_at": parsed.start_at,
+            "due_at": parsed.due_at,
+            "estimated_minutes": parsed.estimated_minutes,
+            "meeting_id": parsed.meeting_id,
+            "meeting_code": parsed.meeting_code,
+            "join_url": parsed.join_url,
+            "missing_fields": parsed.missing_fields,
+            "confidence": parsed.confidence,
+            "needs_confirmation": bool(parsed.missing_fields or parsed.confidence < 0.85),
+            "tmeet_lookup": lookup,
+            "proposed_item": parsed.proposed_item,
+        }
+    return await _authed(_run)
+
+
+@mcp.tool()
+async def pa_resolve_offline_location(
+    query: str,
+    city: str | None = None,
+    adcode: str | None = None,
+    limit: int = 5,
+    search_poi: bool = True,
+) -> dict:
+    """Resolve a physical address/POI through the configured server-side AMap key."""
+    def _run(conn, uid):
+        client = AMapClient(settings_for_user(conn, uid, get_settings()))
+        if search_poi:
+            result = client.search_poi(query, city=city, limit=limit)
+            if result.get("candidates"):
+                return result
+        return client.resolve(query, city=city, adcode=adcode, limit=limit)
+    return await _authed(_run)
+
+
+@mcp.tool()
+async def pa_assess_schedule_feasibility(
+    item_ids: list[str],
+    travel_mode: str = "transit",
+    buffer_minutes: int = 15,
+) -> dict:
+    """Assess timed items in chronological order, including physical travel and buffers."""
+    if travel_mode not in {"driving", "transit", "walking", "cycling"}:
+        raise ValueError("travel_mode must be driving, transit, walking, or cycling")
+    return await _authed(
+        lambda conn, uid: assess_schedule_feasibility(
+            ItemsRepository(conn), uid, [UUID(value) for value in item_ids], AMapClient(settings_for_user(conn, uid, get_settings())),
+            travel_mode=travel_mode, buffer_minutes=buffer_minutes,
+        )
+    )
 
 
 @mcp.tool()
@@ -565,6 +767,16 @@ async def pa_create_calendar_event(
     all_day: bool = False,
     notes: str | None = None,
     estimated_minutes: int | None = None,
+    event_format: str | None = None,
+    event_location: str | None = None,
+    event_url: str | None = None,
+    location_name: str | None = None,
+    location_address: str | None = None,
+    location_provider: str | None = None,
+    location_poi_id: str | None = None,
+    location_latitude: float | None = None,
+    location_longitude: float | None = None,
+    location_confidence: float | None = None,
     reminder_timing: str | None = None,
     reminder_offset_minutes: int = 10,
     client_request_id: str | None = None,
@@ -585,6 +797,16 @@ async def pa_create_calendar_event(
         "due_date": date.fromisoformat(due_date) if due_date else None,
         "notes": notes,
         "estimated_minutes": estimated_minutes,
+        "event_format": event_format,
+        "event_location": event_location,
+        "event_url": event_url,
+        "location_name": location_name,
+        "location_address": location_address,
+        "location_provider": location_provider,
+        "location_poi_id": location_poi_id,
+        "location_latitude": location_latitude,
+        "location_longitude": location_longitude,
+        "location_confidence": location_confidence,
         "client_request_id": client_request_id,
     }
     request = ItemCreate(**{k: v for k, v in fields.items() if v is not None})

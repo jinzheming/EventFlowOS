@@ -25,6 +25,8 @@ def test_parse_tencent_meeting_invite_extracts_structured_fields() -> None:
     assert parsed.missing_fields == []
     assert "原始文本" not in parsed.notes
     assert parsed.proposed_item["status"] == "planned"
+    assert parsed.proposed_item["event_format"] == "online"
+    assert parsed.proposed_item["event_url"] == "https://meeting.tencent.com/dm/AbCdEf1234"
 
 
 def test_parse_plain_meeting_number_as_identifier_for_cli_completion() -> None:
@@ -33,6 +35,34 @@ def test_parse_plain_meeting_number_as_identifier_for_cli_completion() -> None:
     assert parsed.meeting_id == "987654321"
     assert "title" in parsed.missing_fields
     assert "schedule" in parsed.missing_fields
+
+
+def test_parse_invite_field_variants_and_chinese_date() -> None:
+    parsed = parse_tencent_meeting_invite(
+        """
+Topic: 版本发布评审
+会议开始时间：2026年9月24日 14:15～15:45
+Meeting No.: 123-456-789
+Passcode: Abc123
+Join: https://video.example.com/rooms/abc-123?token=xyz.
+"""
+    )
+
+    assert parsed.title == "版本发布评审"
+    assert parsed.start_at == "2026-09-24T14:15:00+08:00"
+    assert parsed.due_at == "2026-09-24T15:45:00+08:00"
+    assert parsed.estimated_minutes == 90
+    assert parsed.meeting_id == "123456789"
+    assert parsed.meeting_code == "Abc123"
+    assert parsed.join_url == "https://video.example.com/rooms/abc-123?token=xyz"
+
+
+def test_parse_invalid_calendar_date_returns_no_schedule() -> None:
+    parsed = parse_tencent_meeting_invite("会议时间：2026-02-31 14:00-15:00")
+
+    assert parsed.start_at is None
+    assert parsed.due_at is None
+    assert parsed.estimated_minutes is None
 
 
 def test_merge_tmeet_details_fills_missing_title_and_schedule() -> None:

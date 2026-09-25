@@ -12,6 +12,7 @@ from personal_affairs.domain.enums import (
     AgentProposalState,
     DeliveryChannel,
     DeliveryStatus,
+    EventFormat,
     ItemScope,
     ItemStatus,
     MilestoneStatus,
@@ -133,6 +134,16 @@ class ItemBase(BaseModel):
     due_at: datetime | None = None
     start_date: date | None = None
     due_date: date | None = None
+    event_format: EventFormat | None = None
+    event_location: str | None = Field(default=None, max_length=500)
+    event_url: str | None = Field(default=None, max_length=2000)
+    location_name: str | None = Field(default=None, max_length=300)
+    location_address: str | None = Field(default=None, max_length=1000)
+    location_provider: str | None = Field(default=None, max_length=80)
+    location_poi_id: str | None = Field(default=None, max_length=200)
+    location_latitude: float | None = Field(default=None, ge=-90, le=90)
+    location_longitude: float | None = Field(default=None, ge=-180, le=180)
+    location_confidence: float | None = Field(default=None, ge=0, le=1)
     waiting_on: str | None = Field(default=None, max_length=300)
     waiting_follow_up_date: date | None = None
     recurrence_freq: Literal["daily", "weekly", "monthly"] | None = None
@@ -142,6 +153,8 @@ class ItemBase(BaseModel):
     estimated_minutes: int | None = Field(default=None, ge=1, le=10080)
     tag_ids: list[UUID] | None = None
     people: list[ItemPersonInput] | None = None
+    predecessor_item_ids: list[UUID] | None = None
+    successor_item_ids: list[UUID] | None = None
 
 
 class ItemCreate(ItemBase):
@@ -159,6 +172,16 @@ class ItemPatch(BaseModel):
     due_at: datetime | None = None
     start_date: date | None = None
     due_date: date | None = None
+    event_format: EventFormat | None = None
+    event_location: str | None = Field(default=None, max_length=500)
+    event_url: str | None = Field(default=None, max_length=2000)
+    location_name: str | None = Field(default=None, max_length=300)
+    location_address: str | None = Field(default=None, max_length=1000)
+    location_provider: str | None = Field(default=None, max_length=80)
+    location_poi_id: str | None = Field(default=None, max_length=200)
+    location_latitude: float | None = Field(default=None, ge=-90, le=90)
+    location_longitude: float | None = Field(default=None, ge=-180, le=180)
+    location_confidence: float | None = Field(default=None, ge=0, le=1)
     waiting_on: str | None = Field(default=None, max_length=300)
     waiting_follow_up_date: date | None = None
     recurrence_freq: Literal["daily", "weekly", "monthly"] | None = None
@@ -168,6 +191,8 @@ class ItemPatch(BaseModel):
     estimated_minutes: int | None = Field(default=None, ge=1, le=10080)
     tag_ids: list[UUID] | None = None
     people: list[ItemPersonInput] | None = None
+    predecessor_item_ids: list[UUID] | None = None
+    successor_item_ids: list[UUID] | None = None
 
 
 class ItemOut(BaseModel):
@@ -186,6 +211,17 @@ class ItemOut(BaseModel):
     due_at: datetime | None
     start_date: date | None
     due_date: date | None
+    event_format: str | None = None
+    event_location: str | None = None
+    event_url: str | None = None
+    location_name: str | None = None
+    location_address: str | None = None
+    location_provider: str | None = None
+    location_poi_id: str | None = None
+    location_latitude: float | None = None
+    location_longitude: float | None = None
+    location_confidence: float | None = None
+    location_updated_at: datetime | None = None
     waiting_on: str | None
     waiting_follow_up_date: date | None
     recurrence_freq: str | None
@@ -206,6 +242,43 @@ class ItemOut(BaseModel):
     updated_at: datetime
     tags: list["ItemTagOut"] = []
     people: list["ItemPersonOut"] = []
+    predecessor_item_ids: list[UUID] = []
+    successor_item_ids: list[UUID] = []
+
+
+class MeetingParseRequest(BaseModel):
+    raw_text: str = Field(min_length=1, max_length=10000)
+    enrich_tmeet: bool = True
+    timezone: str | None = Field(default=None, max_length=80)
+
+
+class MeetingParseOut(BaseModel):
+    proposed_item: dict[str, Any]
+    title: str | None = None
+    start_at: str | None = None
+    due_at: str | None = None
+    estimated_minutes: int | None = None
+    meeting_id: str | None = None
+    meeting_code: str | None = None
+    join_url: str | None = None
+    missing_fields: list[str] = []
+    confidence: float
+    needs_confirmation: bool = True
+    tmeet_lookup: dict[str, Any] | None = None
+
+
+class LocationResolveRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=500)
+    city: str | None = Field(default=None, max_length=100)
+    adcode: str | None = Field(default=None, max_length=20)
+    limit: int = Field(default=5, ge=1, le=20)
+    search_poi: bool = True
+
+
+class ScheduleFeasibilityRequest(BaseModel):
+    item_ids: list[UUID] = Field(min_length=2, max_length=100)
+    travel_mode: Literal["driving", "transit", "walking", "cycling"] = "transit"
+    buffer_minutes: int = Field(default=15, ge=0, le=240)
 
 
 class ItemTagOut(BaseModel):
@@ -453,6 +526,16 @@ class CalendarEventOut(BaseModel):
     project_id: UUID | None = None
     status: str
     color: str
+    event_format: str | None = None
+    event_location: str | None = None
+    event_url: str | None = None
+    location_name: str | None = None
+    location_address: str | None = None
+    location_provider: str | None = None
+    location_poi_id: str | None = None
+    location_latitude: float | None = None
+    location_longitude: float | None = None
+    location_confidence: float | None = None
 
 
 class DeliveryOut(BaseModel):
@@ -507,6 +590,15 @@ class PreferencesOut(BaseModel):
     digest_morning_time: str = "08:00"
     digest_evening_time: str = "21:00"
     ics_token: str | None = None
+    amap_enabled: bool = False
+    amap_key_configured: bool = False
+    amap_default_city: str | None = None
+    amap_timeout_seconds: float = 3.0
+    tmeet_enabled: bool = False
+    tmeet_bin: str = "tmeet"
+    tmeet_home: str | None = None
+    tmeet_timeout_seconds: float = 8.0
+    tmeet_allowed_commands: str = "meeting:get"
 
 
 class PreferencesPatch(BaseModel):
@@ -521,6 +613,15 @@ class PreferencesPatch(BaseModel):
     digest_evening_enabled: bool | None = None
     digest_morning_time: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
     digest_evening_time: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+    amap_enabled: bool | None = None
+    amap_key: str | None = Field(default=None, max_length=500)
+    amap_default_city: str | None = Field(default=None, max_length=100)
+    amap_timeout_seconds: float | None = Field(default=None, ge=1, le=30)
+    tmeet_enabled: bool | None = None
+    tmeet_bin: str | None = Field(default=None, min_length=1, max_length=200)
+    tmeet_home: str | None = Field(default=None, max_length=500)
+    tmeet_timeout_seconds: float | None = Field(default=None, ge=1, le=60)
+    tmeet_allowed_commands: str | None = Field(default=None, max_length=200)
 
 
 class FocusSessionOut(BaseModel):

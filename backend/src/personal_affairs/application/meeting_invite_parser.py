@@ -20,8 +20,9 @@ class MeetingInviteParseResult:
 
     @property
     def proposed_item(self) -> dict:
+        fallback_title = "腾讯会议" if self.join_url and "tencent.com" in self.join_url else "线上会议" if self.join_url else "会议"
         payload: dict = {
-            "title": self.title or "腾讯会议",
+            "title": self.title or fallback_title,
             "scope": "work",
             "status": "planned" if self.start_at or self.due_at else "inbox",
             "priority": "normal",
@@ -34,6 +35,10 @@ class MeetingInviteParseResult:
             payload["due_at"] = self.due_at
         if self.estimated_minutes:
             payload["estimated_minutes"] = self.estimated_minutes
+        if self.join_url or self.meeting_id:
+            payload["event_format"] = "online"
+        if self.join_url:
+            payload["event_url"] = self.join_url
         return payload
 
 
@@ -109,33 +114,39 @@ def merge_tmeet_meeting_details(
 
 
 def _extract_title(text: str) -> str | None:
-    patterns = [
-        r"会议主题[：:]\s*(.+)",
-        r"主题[：:]\s*(.+)",
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text)
-        if match:
-            return _clean_line(match.group(1))
-    return None
+    match = re.search(
+        r"(?im)^\s*(?:会议主题|会议标题|会议名称|主题名称|主题|meeting\s*(?:subject|title)|subject|topic)\s*[：:]\s*(.+)$",
+        text,
+    )
+    return _clean_line(match.group(1)) if match else None
 
 
 def _extract_schedule(text: str, timezone: str) -> tuple[str | None, str | None, int | None]:
     match = re.search(
-        r"会议时间[：:]\s*(\d{4}[-/]\d{1,2}[-/]\d{1,2})\s+(\d{1,2}:\d{2})\s*[-~至]\s*(?:(\d{4}[-/]\d{1,2}[-/]\d{1,2})\s+)?(\d{1,2}:\d{2})",
+        r"(?im)(?:会议开始时间|会议时间|开始时间|时间|meeting\s*(?:date\s*/\s*time|time)|when)\s*[：:]\s*"
+        r"(?P<start_date>\d{4}\s*(?:[-/.年])\s*\d{1,2}\s*(?:[-/.月])\s*\d{1,2}\s*日?)\s+"
+        r"(?P<start_time>(?:[01]?\d|2[0-3]):[0-5]\d)\s*(?:[-~～–—至到])\s*"
+        r"(?:(?P<end_date>\d{4}\s*(?:[-/.年])\s*\d{1,2}\s*(?:[-/.月])\s*\d{1,2}\s*日?)\s+)?"
+        r"(?P<end_time>(?:[01]?\d|2[0-3]):[0-5]\d)",
         text,
     )
     if not match:
         return None, None, None
-    start_date = match.group(1).replace("/", "-")
-    start_time = match.group(2)
-    end_date = (match.group(3) or start_date).replace("/", "-")
-    end_time = match.group(4)
+    start_date = _normalize_date(match.group("start_date"))
+    end_date = _normalize_date(match.group("end_date") or match.group("start_date"))
     tz = ZoneInfo(timezone)
-    start = _parse_local_datetime(start_date, start_time, tz)
-    end = _parse_local_datetime(end_date, end_time, tz)
+    try:
+        start = _parse_local_datetime(start_date, match.group("start_time"), tz)
+        end = _parse_local_datetime(end_date, match.group("end_time"), tz)
+    except ValueError:
+        return None, None, None
     minutes = max(1, int((end - start).total_seconds() // 60)) if end >= start else None
     return start.isoformat(), end.isoformat(), minutes
+
+
+def _normalize_date(value: str) -> str:
+    year, month, day = (int(part) for part in re.findall(r"\d+", value))
+    return f"{year:04d}-{month:02d}-{day:02d}"
 
 
 def _parse_local_datetime(day: str, clock: str, tz: ZoneInfo) -> datetime:
@@ -145,7 +156,11 @@ def _parse_local_datetime(day: str, clock: str, tz: ZoneInfo) -> datetime:
 
 
 def _extract_meeting_id(text: str) -> str | None:
-    match = re.search(r"会议(?:号|ID|id)[：:]?\s*([0-9][0-9\-\s]{5,})", text)
+    match = re.search(
+        r"(?:会议(?:号|号码|\s*ID)|meeting\s*(?:ID|No\.?))\s*[：:]?\s*([0-9][0-9\-\s]{5,})",
+        text,
+        re.IGNORECASE,
+    )
     if match:
         return _normalize_digits(match.group(1))
     compact = text.strip()
@@ -155,19 +170,24 @@ def _extract_meeting_id(text: str) -> str | None:
 
 
 def _extract_meeting_code(text: str) -> str | None:
-    match = re.search(r"(?:密码|会议密码|入会密码)[：:]?\s*([A-Za-z0-9]{2,20})", text)
+    match = re.search(
+        r"(?:会议密码|入会密码|入会口令|密码|meeting\s*password|passcode|password)\s*[：:]?\s*([A-Za-z0-9]{2,20})",
+        text,
+        re.IGNORECASE,
+    )
     return match.group(1) if match else None
 
 
 def _extract_join_url(text: str) -> str | None:
-    match = re.search(r"https://meeting\.tencent\.com/\S+", text)
+    match = re.search(r"https?://[^\s<>\"']+|meeting\.tencent\.com/[^\s<>\"']+", text, re.IGNORECASE)
     if not match:
         return None
-    return match.group(0).rstrip("，。,)）]")
+    url = match.group(0).rstrip("，。,.;；:!?)]}>'\"")
+    return f"https://{url}" if url.lower().startswith("meeting.tencent.com/") else url
 
 
 def _format_notes(raw_text: str, meeting_id: str | None, meeting_code: str | None, join_url: str | None) -> str:
-    lines = ["腾讯会议"]
+    lines = ["腾讯会议" if join_url and "tencent.com" in join_url else "线上会议" if join_url else "会议"]
     if join_url:
         lines.append(f"入会链接：{join_url}")
     if meeting_id:

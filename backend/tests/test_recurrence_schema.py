@@ -42,3 +42,42 @@ def test_item_patch_accepts_estimated_minutes() -> None:
     assert patch.model_dump(exclude_unset=True)["estimated_minutes"] == 60
     patch = ItemPatch(estimated_minutes=None, tag_ids=[uuid4()])
     assert patch.estimated_minutes is None
+
+
+def test_item_schema_accepts_multiple_logical_relations() -> None:
+    predecessor = uuid4()
+    successor = uuid4()
+    item = ItemCreate(
+        title="依赖事项",
+        scope="work",
+        predecessor_item_ids=[predecessor],
+        successor_item_ids=[successor],
+    )
+    assert item.predecessor_item_ids == [predecessor]
+    assert item.successor_item_ids == [successor]
+
+    patch = ItemPatch(predecessor_item_ids=[], successor_item_ids=[successor])
+    assert patch.predecessor_item_ids == []
+    assert patch.successor_item_ids == [successor]
+
+
+def test_item_schema_accepts_event_location_fields() -> None:
+    item = ItemCreate(
+        title="x",
+        scope="work",
+        event_format="online",
+        event_location="会议室 A",
+        event_url="https://meeting.example.com/j/123",
+    )
+    assert item.event_format == "online"
+    patch = ItemPatch(event_format="offline", event_location="上海办公室", event_url=None)
+    assert patch.model_dump(exclude_unset=True) == {
+        "event_format": "offline",
+        "event_location": "上海办公室",
+        "event_url": None,
+    }
+
+
+def test_item_schema_rejects_invalid_event_format() -> None:
+    with pytest.raises(ValidationError):
+        ItemCreate(title="x", scope="work", event_format="phone")
