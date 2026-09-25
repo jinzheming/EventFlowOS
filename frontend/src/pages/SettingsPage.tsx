@@ -291,6 +291,8 @@ function PrefsSection({ session }: { session: Session }) {
         {prefs.data && <IdentityRulesEditor rules={prefs.data.identity_scope_rules} saving={patch.isPending} onSave={(rules) => patch.mutate({ identity_scope_rules: rules })} />}
       </section>
 
+      <IntegrationSettingsSection session={session} />
+
       <section className="settings-card">
         <h2>通知渠道</h2>
         <div className="settings-row-list">
@@ -404,6 +406,44 @@ function PrefsSection({ session }: { session: Session }) {
         )}
       </section>
     </>
+  );
+}
+
+function IntegrationSettingsSection({ session }: { session: Session }) {
+  const queryClient = useQueryClient();
+  const prefs = useQuery({ queryKey: ['preferences'], queryFn: api.preferences });
+  const patch = useMutation({
+    mutationFn: (payload: Partial<Preferences>) => api.patchPreferences(session.csrf_token, payload),
+    onSuccess: (data) => queryClient.setQueryData(['preferences'], data),
+  });
+  const [amapKey, setAmapKey] = useState('');
+  const [amapCity, setAmapCity] = useState('');
+  const [tmeetBin, setTmeetBin] = useState('tmeet');
+  const [tmeetHome, setTmeetHome] = useState('');
+  useEffect(() => {
+    if (!prefs.data) return;
+    setAmapCity(prefs.data.amap_default_city ?? '');
+    setTmeetBin(prefs.data.tmeet_bin);
+    setTmeetHome(prefs.data.tmeet_home ?? '');
+  }, [prefs.data]);
+  const save = (payload: Partial<Preferences>) => patch.mutate(payload);
+  return (
+    <section className="settings-card">
+      <h2>会议与地图集成</h2>
+      <p className="hint">配置只作用于当前账号。高德 Key 不会回显；腾讯会议 CLI 只允许只读查询命令。</p>
+      <div className="settings-row-list">
+        <div className="settings-row"><div className="settings-row-info"><strong>高德地图</strong><span>地址、POI 与路线时间解析</span></div><SwitchControl on={prefs.data?.amap_enabled ?? false} disabled={patch.isPending} onToggle={() => save({ amap_enabled: !(prefs.data?.amap_enabled ?? false) })} /></div>
+        <label>高德 API Key<input type="password" value={amapKey} placeholder={prefs.data?.amap_key_configured ? '已配置，留空保持不变' : '输入 Web 服务 Key'} onChange={(e) => setAmapKey(e.target.value)} onBlur={() => { if (amapKey.trim()) { save({ amap_key: amapKey.trim() }); setAmapKey(''); } }} /></label>
+        <label>默认城市<input value={amapCity} placeholder="例如上海" onChange={(e) => setAmapCity(e.target.value)} onBlur={() => save({ amap_default_city: amapCity.trim() || null })} /></label>
+        <label>请求超时（秒）<input type="number" min="1" max="30" value={prefs.data?.amap_timeout_seconds ?? 3} onChange={(e) => save({ amap_timeout_seconds: Number(e.target.value) })} /></label>
+        <div className="settings-row"><div className="settings-row-info"><strong>腾讯会议 CLI</strong><span>绑定本机 tmeet 命令，用于补全会议主题与时间</span></div><SwitchControl on={prefs.data?.tmeet_enabled ?? false} disabled={patch.isPending} onToggle={() => save({ tmeet_enabled: !(prefs.data?.tmeet_enabled ?? false) })} /></div>
+        <label>CLI 路径<input value={tmeetBin} onChange={(e) => setTmeetBin(e.target.value)} onBlur={() => save({ tmeet_bin: tmeetBin.trim() || 'tmeet' })} /></label>
+        <label>CLI 工作目录<input value={tmeetHome} placeholder="可选，例如 /var/lib/tmeet" onChange={(e) => setTmeetHome(e.target.value)} onBlur={() => save({ tmeet_home: tmeetHome.trim() || null })} /></label>
+        <label>允许的命令<input value={prefs.data?.tmeet_allowed_commands ?? 'meeting:get'} onChange={(e) => save({ tmeet_allowed_commands: e.target.value })} onBlur={(e) => save({ tmeet_allowed_commands: e.currentTarget.value.trim() || 'meeting:get' })} /></label>
+        {patch.isError && <p className="error-line">{patch.error.message}</p>}
+        {patch.isSuccess && <p className="hint">设置已保存。</p>}
+      </div>
+    </section>
   );
 }
 

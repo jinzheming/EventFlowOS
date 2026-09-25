@@ -1123,12 +1123,82 @@ textarea:focus {
 }
 
 .advanced-fields,
-.reminder-box {
+.reminder-box,
+.event-format-box {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 12px;
   display: grid;
   gap: 12px;
+}
+
+.event-format-title,
+.event-format-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.event-format-title {
+  color: var(--text-secondary);
+  font-weight: 700;
+}
+
+.event-format-inputs {
+  display: grid;
+  gap: 10px;
+}
+
+.location-selection {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.location-selection a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.event-format-options {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.event-format-options .chip {
+  min-width: 72px;
+}
+
+.event-format-box .secondary-button {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.location-candidate {
+  display: grid;
+  gap: 3px;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
+.location-candidate span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.error-text {
+  color: var(--danger, #b91c1c);
 }
 
 .advanced-fields summary {
@@ -2584,6 +2654,59 @@ button.health-strip {
 .tag-picker-new input {
   flex: 1;
   min-width: 120px;
+}
+
+.item-relations-box .hint {
+  margin: 0;
+}
+
+.relation-group {
+  display: grid;
+  gap: 8px;
+}
+
+.relation-group > strong {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.relation-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.relation-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 3px 5px 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+}
+
+.relation-chip .icon-button {
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+}
+
+.relation-chip > span {
+  display: grid;
+  min-width: 0;
+}
+
+.relation-chip small {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.relation-add-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
 }
 
 /* 标签聚合页 */

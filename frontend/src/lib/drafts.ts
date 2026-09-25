@@ -1,4 +1,4 @@
-import type { Item, ItemPayload, ItemStatus, PersonRole, Priority, Scope } from '../api/client';
+import type { EventFormat, Item, ItemPayload, ItemStatus, PersonRole, Priority, Scope } from '../api/client';
 import { localDateTimeParts, localInputToISO } from './dates';
 import type { RecurrenceEnd, RecurrenceFreq } from './recurrence';
 import { buildRecurrenceRule, emptyRecurrenceFields, recurrenceFieldsFromItem } from './recurrence';
@@ -17,6 +17,18 @@ export type WorkDraft = {
   start_time: string;
   due_date: string;
   due_time: string;
+  event_format: EventFormat | '';
+  event_location: string;
+  event_url: string;
+  location_name: string;
+  location_address: string;
+  location_provider: string;
+  location_poi_id: string;
+  location_latitude: number | null;
+  location_longitude: number | null;
+  location_confidence: number | null;
+  predecessor_item_ids: string[];
+  successor_item_ids: string[];
   waiting_on: string;
   people: DraftPerson[];
   waiting_follow_up: string;
@@ -38,6 +50,18 @@ export type PersonalDraft = {
   start_time: string;
   due_date: string;
   due_time: string;
+  event_format: EventFormat | '';
+  event_location: string;
+  event_url: string;
+  location_name: string;
+  location_address: string;
+  location_provider: string;
+  location_poi_id: string;
+  location_latitude: number | null;
+  location_longitude: number | null;
+  location_confidence: number | null;
+  predecessor_item_ids: string[];
+  successor_item_ids: string[];
   waiting_on: string;
   people: DraftPerson[];
   recurrence_freq: RecurrenceFreq;
@@ -62,6 +86,12 @@ export function emptyWorkDraft(): WorkDraft {
     start_time: '',
     due_date: '',
     due_time: '',
+    event_format: '',
+    event_location: '',
+    event_url: '',
+    location_name: '', location_address: '', location_provider: '', location_poi_id: '',
+    location_latitude: null, location_longitude: null, location_confidence: null,
+    predecessor_item_ids: [], successor_item_ids: [],
     waiting_on: '',
     people: [],
     waiting_follow_up: '',
@@ -81,6 +111,12 @@ export function emptyPersonalDraft(): PersonalDraft {
     start_time: '',
     due_date: '',
     due_time: '',
+    event_format: '',
+    event_location: '',
+    event_url: '',
+    location_name: '', location_address: '', location_provider: '', location_poi_id: '',
+    location_latitude: null, location_longitude: null, location_confidence: null,
+    predecessor_item_ids: [], successor_item_ids: [],
     waiting_on: '',
     people: [],
     ...emptyRecurrenceFields(),
@@ -104,6 +140,12 @@ export function draftFromItem(item: Item): WorkDraft {
     start_time: startParts?.time ?? '',
     due_date: dueParts?.date ?? item.due_date ?? '',
     due_time: dueParts?.time ?? '',
+    event_format: item.event_format ?? '',
+    event_location: item.event_location ?? '',
+    event_url: item.event_url ?? '',
+    location_name: item.location_name ?? '', location_address: item.location_address ?? '', location_provider: item.location_provider ?? '', location_poi_id: item.location_poi_id ?? '',
+    location_latitude: item.location_latitude, location_longitude: item.location_longitude, location_confidence: item.location_confidence,
+    predecessor_item_ids: item.predecessor_item_ids ?? [], successor_item_ids: item.successor_item_ids ?? [],
     waiting_on: item.waiting_on ?? '',
     people: (item.people ?? []).map((person) => ({ person_id: person.id, role: person.role })),
     waiting_follow_up: item.waiting_follow_up_date ?? '',
@@ -125,6 +167,12 @@ export function personalDraftFromItem(item: Item): PersonalDraft {
     start_time: startParts?.time ?? '',
     due_date: dueParts?.date ?? item.due_date ?? '',
     due_time: dueParts?.time ?? '',
+    event_format: item.event_format ?? '',
+    event_location: item.event_location ?? '',
+    event_url: item.event_url ?? '',
+    location_name: item.location_name ?? '', location_address: item.location_address ?? '', location_provider: item.location_provider ?? '', location_poi_id: item.location_poi_id ?? '',
+    location_latitude: item.location_latitude, location_longitude: item.location_longitude, location_confidence: item.location_confidence,
+    predecessor_item_ids: item.predecessor_item_ids ?? [], successor_item_ids: item.successor_item_ids ?? [],
     waiting_on: item.waiting_on ?? '',
     people: (item.people ?? []).map((person) => ({ person_id: person.id, role: person.role })),
     ...recurrenceFieldsFromItem(item),
@@ -163,7 +211,10 @@ export function buildWorkPatch(draft: WorkDraft): ItemPayload {
     notes: draft.notes.trim() || null,
     waiting_on: null,
     people: draft.people,
+    predecessor_item_ids: draft.predecessor_item_ids,
+    successor_item_ids: draft.successor_item_ids,
     waiting_follow_up_date: waiting ? draft.waiting_follow_up || null : null,
+    ...buildEventLocation(draft),
     ...buildRecurrenceRule(draft),
     estimated_minutes: draft.estimated_minutes ? Number(draft.estimated_minutes) : null,
     ...schedule,
@@ -208,6 +259,22 @@ export function buildSchedule(draft: Pick<WorkDraft, 'start_date' | 'start_time'
   };
 }
 
+function buildEventLocation(draft: Pick<WorkDraft | PersonalDraft, 'event_format' | 'event_location' | 'event_url' | 'location_name' | 'location_address' | 'location_provider' | 'location_poi_id' | 'location_latitude' | 'location_longitude' | 'location_confidence'>): Pick<Item, 'event_format' | 'event_location' | 'event_url' | 'location_name' | 'location_address' | 'location_provider' | 'location_poi_id' | 'location_latitude' | 'location_longitude' | 'location_confidence'> {
+  const format = draft.event_format || null;
+  return {
+    event_format: format,
+    event_location: format === 'offline' ? draft.event_location.trim() || null : null,
+    event_url: format === 'online' ? draft.event_url.trim() || null : null,
+    location_name: format === 'offline' ? draft.location_name.trim() || null : null,
+    location_address: format === 'offline' ? draft.location_address.trim() || null : null,
+    location_provider: format === 'offline' ? draft.location_provider.trim() || null : null,
+    location_poi_id: format === 'offline' ? draft.location_poi_id.trim() || null : null,
+    location_latitude: format === 'offline' ? draft.location_latitude : null,
+    location_longitude: format === 'offline' ? draft.location_longitude : null,
+    location_confidence: format === 'offline' ? draft.location_confidence : null,
+  };
+}
+
 export function buildPersonalPayload(draft: PersonalDraft): ItemPayload & { title: string; scope: Scope } {
   return {
     ...buildPersonalPatch(draft),
@@ -225,6 +292,9 @@ export function buildPersonalPatch(draft: PersonalDraft): ItemPayload {
     notes: draft.notes.trim() || null,
     waiting_on: null,
     people: draft.people,
+    predecessor_item_ids: draft.predecessor_item_ids,
+    successor_item_ids: draft.successor_item_ids,
+    ...buildEventLocation(draft),
     ...buildRecurrenceRule(draft),
     estimated_minutes: draft.estimated_minutes ? Number(draft.estimated_minutes) : null,
     ...buildSchedule(draft),

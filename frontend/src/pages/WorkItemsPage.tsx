@@ -13,7 +13,7 @@ import { useToggleDone } from '../hooks/useToggleDone';
 import { useUndo } from '../hooks/useUndo';
 import { runBatchSequential } from '../lib/batch';
 import { filterItemsByQuickFilter, ItemQuickFilter, workQuickFilters , isHighPriority } from '../lib/itemFilters';
-import { filterItemsForView, groupWorkItems, summarizeWorkItems } from '../lib/items';
+import { filterItemsForView, groupArchivedItems, groupWorkItems, summarizeWorkItems } from '../lib/items';
 import { ItemListView, itemViewLabels } from '../lib/labels';
 import { buildReschedulePatch } from '../lib/reschedule';
 
@@ -87,7 +87,7 @@ export function WorkItemsPage({ session }: { session: Session }) {
     [items.data, projectById, search, view, quickFilter, highPriority],
   );
   const grouped = useMemo(
-    () => (view === 'archived' ? [{ label: '归档', items: visibleItems }] : view === 'done' ? [{ label: '已完成', items: visibleItems }] : groupWorkItems(visibleItems)),
+    () => (view === 'archived' ? groupArchivedItems(visibleItems) : view === 'done' ? [{ label: '已完成', items: visibleItems }] : groupWorkItems(visibleItems)),
     [view, visibleItems],
   );
   const currentItems = useMemo(() => (items.data ?? []).filter((item) => !item.archived_at), [items.data]);
@@ -182,6 +182,14 @@ export function WorkItemsPage({ session }: { session: Session }) {
       selectedItems.filter((item) => !item.archived_at),
       (item) => api.archiveItem(session.csrf_token, item.id),
       (item) => api.restoreItem(session.csrf_token, item.id),
+    );
+
+  const batchDelete = () =>
+    runBatch(
+      '已批量移入回收站',
+      selectedItems,
+      (item) => api.deleteItem(session.csrf_token, item.id),
+      (item) => api.restoreDeletedItem(session.csrf_token, item.id),
     );
 
   const batchAddTags = (tagIds: string[]) =>
@@ -377,6 +385,7 @@ export function WorkItemsPage({ session }: { session: Session }) {
           onTomorrow={() => runBatchReschedule('tomorrow')}
           onNextWeek={() => runBatchReschedule('next_week')}
           onArchive={batchArchive}
+          onDelete={batchDelete}
           onAddTags={batchAddTags}
           onCreateTag={(name, parentId) => createTag.mutate({ name, parentId })}
           onExit={exitSelectMode}

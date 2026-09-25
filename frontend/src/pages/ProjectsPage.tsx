@@ -22,7 +22,7 @@ export function ProjectsPage({ session }: { session: Session }) {
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const groups = useQuery({ queryKey: ['project-groups'], queryFn: () => api.projectGroups(true) });
   const selected = projects.data?.find((project) => project.id === selectedId) ?? null;
-  const items = useQuery({ queryKey: ['project-items', selected?.id], queryFn: () => api.projectItems(selected!.id), enabled: !!selected });
+  const items = useQuery({ queryKey: ['project-items', selected?.id], queryFn: () => api.projectItems('work', selected!.id), enabled: !!selected });
 
   const activeGroups = useMemo(() => (groups.data ?? []).filter((group) => !group.archived_at), [groups.data]);
   const archivedGroups = useMemo(() => (groups.data ?? []).filter((group) => group.archived_at), [groups.data]);

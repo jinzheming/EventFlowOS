@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bell, Save, Tag as TagIcon, X } from 'lucide-react';
 import { FormEvent, useEffect, useRef, useState } from 'react';
-import { api, Item, ItemStatus, Session } from '../api/client';
+import { api, Item, ItemStatus, Session, type MeetingParsePreview } from '../api/client';
 import { useDialogA11y } from '../hooks/useDialogA11y';
 import { PersonalDraft, hasPersonalDraftSchedule, personalDraftFromItem } from '../lib/drafts';
 import { FocusControls } from './FocusControls';
@@ -11,10 +11,13 @@ import { RecurrenceFields } from './RecurrenceFields';
 import { ReminderOffsetSelect } from './ReminderOffsetSelect';
 import { ReminderPreviewHint } from './ReminderPreviewHint';
 import { EstimatedDurationSelect } from './EstimatedDurationSelect';
+import { EventFormatFields } from './EventFormatFields';
 import { QuarterTimePicker } from './QuarterTimePicker';
 import { PersonPicker } from './PersonPicker';
 import { TagPicker } from './TagPicker';
 import { MeetingInfoPanel } from './MeetingInfoPanel';
+import { localDateTimeParts } from '../lib/dates';
+import { ItemRelationsField } from './ItemRelationsField';
 
 export function PersonalItemDrawer({
   item,
@@ -103,6 +106,24 @@ export function PersonalItemDrawer({
           <input data-autofocus value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} />
         </label>
         <MeetingInfoPanel item={item} />
+        <ItemRelationsField
+          scope="personal"
+          projectId={null}
+          itemId={item.id}
+          value={draft}
+          onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}
+        />
+        <EventFormatFields
+          key={item.id}
+          value={draft}
+          timezone={session.timezone}
+          onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}
+          onMeetingParsed={(preview: MeetingParsePreview) => setDraft((current) => {
+            const start = preview.start_at ? localDateTimeParts(preview.start_at) : null;
+            const due = preview.due_at ? localDateTimeParts(preview.due_at) : null;
+            return { ...current, title: current.title.trim() ? current.title : (preview.title || current.title), start_date: current.start_date || start?.date || '', start_time: current.start_time || start?.time || '', due_date: current.due_date || due?.date || '', due_time: current.due_time || due?.time || '', estimated_minutes: current.estimated_minutes || (preview.estimated_minutes ? String(preview.estimated_minutes) : '') };
+          })}
+        />
         <div className="field-grid">
           <label>
             开始日期

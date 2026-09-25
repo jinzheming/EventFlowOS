@@ -1,7 +1,8 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check, EyeOff, Pencil, ShieldAlert, XCircle } from 'lucide-react';
 import { FormEvent, useMemo, useState } from 'react';
-import { AgentProposal, api, Item, ItemStatus, Priority, Scope, Session } from '../api/client';
+import { AgentProposal, api, EventFormat, Item, ItemStatus, Priority, Scope, Session } from '../api/client';
+import { EventFormatFields } from './EventFormatFields';
 
 interface AgentProposalDeckProps {
   proposals: AgentProposal[];
@@ -22,6 +23,9 @@ interface EditableProposalDraft {
   due_at: string;
   start_date: string;
   due_date: string;
+  event_format: EventFormat | '';
+  event_location: string;
+  event_url: string;
   estimated_minutes: string;
   notes: string;
 }
@@ -181,6 +185,7 @@ export function AgentProposalDeck({ proposals, session, title = '待确认提议
                     <input inputMode="numeric" value={draft.estimated_minutes} onChange={(event) => setDraft({ ...draft, estimated_minutes: event.target.value })} />
                   </label>
                 </div>
+                <EventFormatFields value={draft} onChange={(patch) => setDraft({ ...draft, ...patch })} />
                 <label>
                   备注
                   <textarea value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} />
@@ -227,6 +232,7 @@ function compareProposals(a: AgentProposal, b: AgentProposal) {
 
 function draftFromProposal(proposal: AgentProposal): EditableProposalDraft {
   const payload = proposal.proposed_payload;
+  const eventUrl = stringValue(payload.event_url) || stringValue(payload.join_url) || stringValue(proposal.evidence.join_url);
   return {
     title: stringValue(payload.title) || '',
     scope: (stringValue(payload.scope) as Scope) || 'work',
@@ -237,6 +243,9 @@ function draftFromProposal(proposal: AgentProposal): EditableProposalDraft {
     due_at: stringValue(payload.due_at) || '',
     start_date: stringValue(payload.start_date) || '',
     due_date: stringValue(payload.due_date) || '',
+    event_format: eventFormatValue(payload.event_format) || (eventUrl ? 'online' : ''),
+    event_location: stringValue(payload.event_location) || '',
+    event_url: eventUrl,
     estimated_minutes: numberString(payload.estimated_minutes),
     notes: stringValue(payload.notes) || '',
   };
@@ -253,6 +262,9 @@ function editablePayload(proposal: AgentProposal, draft: EditableProposalDraft):
     due_at: draft.due_at.trim() || null,
     start_date: draft.start_date || null,
     due_date: draft.due_date || null,
+    event_format: draft.event_format || null,
+    event_location: draft.event_format === 'offline' ? draft.event_location.trim() || null : null,
+    event_url: draft.event_format === 'online' ? draft.event_url.trim() || null : null,
     estimated_minutes: draft.estimated_minutes.trim() ? Number(draft.estimated_minutes) : null,
     notes: draft.notes.trim() || null,
   };
@@ -292,6 +304,11 @@ function booleanValue(value: unknown, fallback: boolean) {
 
 function numberString(value: unknown) {
   return typeof value === 'number' ? String(value) : typeof value === 'string' ? value : '';
+}
+
+function eventFormatValue(value: unknown): EventFormat | '' {
+  const text = stringValue(value);
+  return text === 'online' || text === 'offline' ? text : '';
 }
 
 function asStringArray(value: unknown) {

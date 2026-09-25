@@ -1,16 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Save, Tag as TagIcon, X } from 'lucide-react';
 import { FormEvent, useRef, useState } from 'react';
-import { api, ItemStatus, Priority, Project, Session } from '../api/client';
+import { api, ItemStatus, Priority, Project, Session, type MeetingParsePreview } from '../api/client';
 import { useDialogA11y } from '../hooks/useDialogA11y';
 import { ReminderOffsetSelect } from './ReminderOffsetSelect';
 import { ReminderPreviewHint } from './ReminderPreviewHint';
 import { EstimatedDurationSelect } from './EstimatedDurationSelect';
+import { EventFormatFields } from './EventFormatFields';
+import { ItemRelationsField } from './ItemRelationsField';
 import { QuarterTimePicker } from './QuarterTimePicker';
 import { TagPicker } from './TagPicker';
 import { WorkDraft, emptyWorkDraft, hasDraftSchedule } from '../lib/drafts';
 import { priorityLabels, statusLabels } from '../lib/labels';
 import { applyDueDate, applyDueTime, applyEstimatedMinutes, applyStartDate, applyStartTime } from '../lib/workSchedule';
+import { localDateTimeParts } from '../lib/dates';
 
 export function WorkItemDialog({
   projects,
@@ -81,7 +84,7 @@ export function WorkItemDialog({
         <div className="field-grid">
           <label>
             关联项目
-            <select value={draft.project_id} onChange={(event) => setDraft({ ...draft, project_id: event.target.value })}>
+            <select value={draft.project_id} onChange={(event) => setDraft({ ...draft, project_id: event.target.value, predecessor_item_ids: [], successor_item_ids: [] })}>
               <option value="">无项目</option>
               {projects.map((project) => (
                 <option value={project.id} key={project.id}>
@@ -101,6 +104,12 @@ export function WorkItemDialog({
             </select>
           </label>
         </div>
+        <ItemRelationsField
+          scope="work"
+          projectId={draft.project_id || null}
+          value={draft}
+          onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}
+        />
         <div className="field-grid">
           <label>
             开始日期
@@ -111,6 +120,16 @@ export function WorkItemDialog({
             <QuarterTimePicker value={draft.start_time || draft.due_time} onChange={(value) => setDraft(applyStartTime(draft, value))} />
           </label>
         </div>
+        <EventFormatFields
+          value={draft}
+          timezone={timezone}
+          onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}
+          onMeetingParsed={(preview: MeetingParsePreview) => setDraft((current) => {
+            const start = preview.start_at ? localDateTimeParts(preview.start_at) : null;
+            const due = preview.due_at ? localDateTimeParts(preview.due_at) : null;
+            return { ...current, title: current.title.trim() ? current.title : (preview.title || current.title), start_date: current.start_date || start?.date || '', start_time: current.start_time || start?.time || '', due_date: current.due_date || due?.date || '', due_time: current.due_time || due?.time || '', estimated_minutes: current.estimated_minutes || (preview.estimated_minutes ? String(preview.estimated_minutes) : '') };
+          })}
+        />
         <details className="advanced-fields">
           <summary>更多设置</summary>
           <label>

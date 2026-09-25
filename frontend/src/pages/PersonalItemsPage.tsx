@@ -13,7 +13,7 @@ import { useToggleDone } from '../hooks/useToggleDone';
 import { useUndo } from '../hooks/useUndo';
 import { runBatchSequential } from '../lib/batch';
 import { filterItemsByQuickFilter, ItemQuickFilter, personalQuickFilters , isHighPriority } from '../lib/itemFilters';
-import { filterItemsForView, groupPersonalItems } from '../lib/items';
+import { filterItemsForView, groupArchivedItems, groupPersonalItems } from '../lib/items';
 import { ItemListView, itemViewLabels } from '../lib/labels';
 import { buildReschedulePatch } from '../lib/reschedule';
 
@@ -47,7 +47,7 @@ export function PersonalItemsPage({ session }: { session: Session }) {
     [items.data, search, view, quickFilter, highPriority],
   );
   const grouped = useMemo(
-    () => (view === 'archived' ? [{ label: '归档', items: visibleItems }] : view === 'done' ? [{ label: '已完成', items: visibleItems }] : groupPersonalItems(visibleItems)),
+    () => (view === 'archived' ? groupArchivedItems(visibleItems) : view === 'done' ? [{ label: '已完成', items: visibleItems }] : groupPersonalItems(visibleItems)),
     [view, visibleItems],
   );
 
@@ -172,6 +172,14 @@ export function PersonalItemsPage({ session }: { session: Session }) {
       selectedItems.filter((item) => !item.archived_at),
       (item) => api.archiveItem(session.csrf_token, item.id),
       (item) => api.restoreItem(session.csrf_token, item.id),
+    );
+
+  const batchDelete = () =>
+    runBatch(
+      '已批量移入回收站',
+      selectedItems,
+      (item) => api.deleteItem(session.csrf_token, item.id),
+      (item) => api.restoreDeletedItem(session.csrf_token, item.id),
     );
 
   const batchAddTags = (tagIds: string[]) =>
@@ -364,6 +372,7 @@ export function PersonalItemsPage({ session }: { session: Session }) {
           onTomorrow={() => runBatchReschedule('tomorrow')}
           onNextWeek={() => runBatchReschedule('next_week')}
           onArchive={batchArchive}
+          onDelete={batchDelete}
           onAddTags={batchAddTags}
           onCreateTag={(name, parentId) => createTag.mutate({ name, parentId })}
           onExit={exitSelectMode}

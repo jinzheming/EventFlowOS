@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bell, Save, Tag as TagIcon, X } from 'lucide-react';
 import { FormEvent, useEffect, useRef, useState } from 'react';
-import { api, Item, ItemStatus, Priority, Project, Session } from '../api/client';
+import { api, Item, ItemStatus, Priority, Project, Session, type MeetingParsePreview } from '../api/client';
 import { useDialogA11y } from '../hooks/useDialogA11y';
 import { WorkDraft, draftFromItem, hasDraftSchedule, scheduleOrderError } from '../lib/drafts';
 import { priorityLabels, statusLabels } from '../lib/labels';
@@ -12,10 +12,13 @@ import { RecurrenceFields } from './RecurrenceFields';
 import { ReminderOffsetSelect } from './ReminderOffsetSelect';
 import { ReminderPreviewHint } from './ReminderPreviewHint';
 import { EstimatedDurationSelect } from './EstimatedDurationSelect';
+import { EventFormatFields } from './EventFormatFields';
 import { QuarterTimePicker } from './QuarterTimePicker';
 import { PersonPicker } from './PersonPicker';
 import { TagPicker } from './TagPicker';
 import { MeetingInfoPanel } from './MeetingInfoPanel';
+import { localDateTimeParts } from '../lib/dates';
+import { ItemRelationsField } from './ItemRelationsField';
 
 export function WorkItemDrawer({
   item,
@@ -108,6 +111,24 @@ export function WorkItemDrawer({
           <input data-autofocus value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} />
         </label>
         <MeetingInfoPanel item={item} />
+        <ItemRelationsField
+          scope="work"
+          projectId={draft.project_id || null}
+          itemId={item.id}
+          value={draft}
+          onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}
+        />
+        <EventFormatFields
+          key={item.id}
+          value={draft}
+          timezone={session.timezone}
+          onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}
+          onMeetingParsed={(preview: MeetingParsePreview) => setDraft((current) => {
+            const start = preview.start_at ? localDateTimeParts(preview.start_at) : null;
+            const due = preview.due_at ? localDateTimeParts(preview.due_at) : null;
+            return { ...current, title: current.title.trim() ? current.title : (preview.title || current.title), start_date: current.start_date || start?.date || '', start_time: current.start_time || start?.time || '', due_date: current.due_date || due?.date || '', due_time: current.due_time || due?.time || '', estimated_minutes: current.estimated_minutes || (preview.estimated_minutes ? String(preview.estimated_minutes) : '') };
+          })}
+        />
         <div className="field-grid">
           <label>
             状态
@@ -132,7 +153,7 @@ export function WorkItemDrawer({
         </div>
         <label>
           关联项目
-          <select value={draft.project_id} onChange={(event) => setDraft({ ...draft, project_id: event.target.value })}>
+          <select value={draft.project_id} onChange={(event) => setDraft({ ...draft, project_id: event.target.value, predecessor_item_ids: [], successor_item_ids: [] })}>
             <option value="">无项目</option>
             {projects.map((project) => (
               <option value={project.id} key={project.id}>

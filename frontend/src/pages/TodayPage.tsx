@@ -36,7 +36,7 @@ export function TodayPage({ session }: { session: Session }) {
   const selectedProject = projects.data?.find((project) => project.id === selectedProjectId) ?? null;
   const selectedProjectItems = useQuery({
     queryKey: ['project-items', selectedProject?.id],
-    queryFn: () => api.projectItems(selectedProject!.id),
+    queryFn: () => api.projectItems('work', selectedProject!.id),
     enabled: !!selectedProject,
   });
   const today = useMemo(() => buildTodayView(allItems, projects.data ?? []), [allItems, projects.data]);

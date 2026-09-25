@@ -1,6 +1,7 @@
 export type Scope = 'work' | 'personal';
 export type ItemStatus = 'inbox' | 'planned' | 'in_progress' | 'waiting' | 'done' | 'cancelled';
 export type Priority = 'low' | 'normal' | 'high' | 'urgent';
+export type EventFormat = 'online' | 'offline';
 export type ProjectStatus = 'planned' | 'active' | 'on_hold' | 'completed' | 'cancelled';
 export type ProjectHealth = 'unknown' | 'on_track' | 'at_risk' | 'blocked';
 export type ActorType = 'human' | 'agent' | 'system';
@@ -117,6 +118,17 @@ export interface Item {
   due_at: string | null;
   start_date: string | null;
   due_date: string | null;
+  event_format: EventFormat | null;
+  event_location: string | null;
+  event_url: string | null;
+  location_name: string | null;
+  location_address: string | null;
+  location_provider: string | null;
+  location_poi_id: string | null;
+  location_latitude: number | null;
+  location_longitude: number | null;
+  location_confidence: number | null;
+  location_updated_at?: string | null;
   waiting_on: string | null;
   waiting_follow_up_date: string | null;
   recurrence_freq: 'daily' | 'weekly' | 'monthly' | null;
@@ -137,6 +149,8 @@ export interface Item {
   updated_at: string;
   tags: ItemTag[];
   people: ItemPerson[];
+  predecessor_item_ids?: string[];
+  successor_item_ids?: string[];
 }
 
 export type ItemPayload = Omit<Partial<Item>, 'people'> & { tag_ids?: string[] | null; people?: Array<{ person_id: string; role: PersonRole } | ItemPerson> | null };
@@ -282,6 +296,48 @@ export interface CalendarEvent {
   project_id: string | null;
   status: string;
   color: string;
+  event_format: EventFormat | null;
+  event_location: string | null;
+  event_url: string | null;
+  location_name: string | null;
+  location_address: string | null;
+  location_latitude: number | null;
+  location_longitude: number | null;
+}
+
+export interface MeetingParsePreview {
+  proposed_item: Record<string, unknown>;
+  title: string | null;
+  start_at: string | null;
+  due_at: string | null;
+  estimated_minutes: number | null;
+  meeting_id: string | null;
+  meeting_code: string | null;
+  join_url: string | null;
+  missing_fields: string[];
+  confidence: number;
+  needs_confirmation: boolean;
+  tmeet_lookup: Record<string, unknown> | null;
+}
+
+export interface LocationCandidate {
+  name: string;
+  address: string;
+  poi_id: string | null;
+  latitude: number;
+  longitude: number;
+  city: string | null;
+  adcode: string | null;
+  confidence: number | null;
+  provider: string;
+}
+
+export interface LocationResolveResult {
+  status: string;
+  provider: string;
+  query?: string;
+  candidates: LocationCandidate[];
+  error?: string;
 }
 
 export interface Reminder {
@@ -338,6 +394,16 @@ export interface Preferences {
   digest_morning_time: string;
   digest_evening_time: string;
   ics_token: string | null;
+  amap_enabled: boolean;
+  amap_key?: string;
+  amap_key_configured: boolean;
+  amap_default_city: string | null;
+  amap_timeout_seconds: number;
+  tmeet_enabled: boolean;
+  tmeet_bin: string;
+  tmeet_home: string | null;
+  tmeet_timeout_seconds: number;
+  tmeet_allowed_commands: string;
 }
 
 async function request<T>(path: string, init: RequestInit = {}, csrf?: string): Promise<T> {
@@ -376,6 +442,8 @@ export const api = {
     request<Item[]>(
       `/items?scope=${scope}&include_archived=${includeArchived}${search ? `&search=${encodeURIComponent(search)}` : ''}`,
     ),
+  projectItems: (scope: Scope, projectId: string | null, includeArchived = false) =>
+    request<Item[]>(`/items?scope=${scope}&include_archived=${includeArchived}&limit=500${projectId ? `&project_id=${projectId}` : ''}`),
   agentProposals: (state: AgentProposalState = 'pending') =>
     request<AgentProposal[]>(`/agent-proposals?state=${state}&limit=500`),
   approveProposal: (csrf: string, proposalId: string, payload: { edited_payload?: Record<string, unknown>; decision_note?: string | null } = {}) =>
@@ -392,6 +460,12 @@ export const api = {
       { method: 'PATCH', body: JSON.stringify(payload), headers: { 'if-match': `v${item.version}` } },
       csrf,
     ),
+  parseMeetingInput: (payload: { raw_text: string; enrich_tmeet?: boolean; timezone?: string }) =>
+    request<MeetingParsePreview>('/items/parse-meeting', { method: 'POST', body: JSON.stringify(payload) }),
+  resolveLocation: (payload: { query: string; city?: string; adcode?: string; limit?: number; search_poi?: boolean }) =>
+    request<LocationResolveResult>('/locations/resolve', { method: 'POST', body: JSON.stringify(payload) }),
+  assessScheduleFeasibility: (payload: { item_ids: string[]; travel_mode?: string; buffer_minutes?: number }) =>
+    request<Record<string, unknown>>('/calendar/assess-feasibility', { method: 'POST', body: JSON.stringify(payload) }),
   putReminder: (csrf: string, itemId: string, payload: ReminderPut) =>
     request(`/items/${itemId}/reminder`, { method: 'PUT', body: JSON.stringify(payload) }, csrf),
   getReminder: async (itemId: string): Promise<Reminder | null> => {
@@ -442,7 +516,6 @@ export const api = {
       { method: 'PATCH', body: JSON.stringify(payload), headers: { 'if-match': `v${project.version}` } },
       csrf,
     ),
-  projectItems: (projectId: string) => request<Item[]>(`/projects/${projectId}/items`),
   projectGroups: (includeArchived = false) => request<ProjectGroup[]>(`/project-groups${includeArchived ? '?include_archived=true' : ''}`),
   createProjectGroup: (csrf: string, payload: { name: string; color?: string; sort_order?: number }) =>
     request<ProjectGroup>('/project-groups', { method: 'POST', body: JSON.stringify(payload) }, csrf),
