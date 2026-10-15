@@ -1,32 +1,36 @@
 import { SaveViewButton, useApplyViewHandoff } from '../components/SavedViews';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
-import { api, Item, Session } from '../api/client';
+import { api, Item, ItemHistoryView, Session } from '../api/client';
 import { BatchActionBar } from '../components/BatchActionBar';
 import { EmptyState, ListState } from '../components/ListState';
 import { QuickFilterBar } from '../components/QuickFilterBar';
 import { WorkItemCard } from '../components/WorkItemCard';
 import { WorkItemDrawer } from '../components/WorkItemDrawer';
+import { useHistoryItems } from '../hooks/useHistoryItems';
 import { usePatchItem, useSaveItemWithReminder } from '../hooks/useItemActions';
 import { useListKeyboard } from '../hooks/useListKeyboard';
 import { useToggleDone } from '../hooks/useToggleDone';
 import { useUndo } from '../hooks/useUndo';
 import { runBatchSequential } from '../lib/batch';
-import { filterItemsByQuickFilter, ItemQuickFilter, workQuickFilters , isHighPriority } from '../lib/itemFilters';
-import { filterItemsForView, groupWorkItems, summarizeWorkItems } from '../lib/items';
+import { filterItemsByQuickFilter, ItemQuickFilter, workQuickFilters, isHighPriority } from '../lib/itemFilters';
+import { filterItemsForView, groupHistoryItems, groupWorkItems, summarizeWorkItems } from '../lib/items';
 import { ItemListView, itemViewLabels } from '../lib/labels';
 import { buildReschedulePatch } from '../lib/reschedule';
 
 export function WorkItemsPage({ session }: { session: Session }) {
   const queryClient = useQueryClient();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
-  const items = useQuery({ queryKey: ['items', 'work'], queryFn: () => api.items('work', true) });
   const [view, setView] = useState<ItemListView>('current');
   const [search, setSearch] = useState('');
   const [quickFilter, setQuickFilter] = useState<ItemQuickFilter>('all');
   const [highPriority, setHighPriority] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [displayOpen, setDisplayOpen] = useState(false);
+  const historyView: ItemHistoryView | null = view === 'done' || view === 'archived' ? view : null;
+  const isHistoryView = historyView !== null;
+  const items = useQuery({ queryKey: ['items', 'work'], queryFn: () => api.items('work', true, '', 500), enabled: !isHistoryView });
+  const historyItems = useHistoryItems('work', historyView, search);
   useApplyViewHandoff('work', (spec) => {
     setView('current');
     setSearch(spec.search);
@@ -40,7 +44,8 @@ export function WorkItemsPage({ session }: { session: Session }) {
     return pending;
   });
 
-  const selected = items.data?.find((item) => item.id === selectedId) ?? null;
+  const loadedItems = isHistoryView ? historyItems.loadedItems : items.data ?? [];
+  const selected = loadedItems.find((item) => item.id === selectedId) ?? null;
 
   function invalidateWork() {
     queryClient.invalidateQueries({ queryKey: ['items', 'work'] });
@@ -79,16 +84,14 @@ export function WorkItemsPage({ session }: { session: Session }) {
     () => new Map((projects.data ?? []).map((project) => [project.id, project])),
     [projects.data],
   );
-  const visibleItems = useMemo(
-    () =>
-      filterItemsByQuickFilter(filterItemsForView(items.data ?? [], view, search, projectById), quickFilter).filter(
-        (item) => !highPriority || isHighPriority(item),
-      ),
-    [items.data, projectById, search, view, quickFilter, highPriority],
-  );
+  const visibleItems = useMemo(() => {
+    if (isHistoryView) return historyItems.visibleItems;
+    const baseItems = filterItemsForView(items.data ?? [], view, search, projectById);
+    return filterItemsByQuickFilter(baseItems, quickFilter).filter((item) => !highPriority || isHighPriority(item));
+  }, [historyItems.visibleItems, isHistoryView, items.data, projectById, search, view, quickFilter, highPriority]);
   const grouped = useMemo(
-    () => (view === 'archived' ? [{ label: '归档', items: visibleItems }] : view === 'done' ? [{ label: '已完成', items: visibleItems }] : groupWorkItems(visibleItems)),
-    [view, visibleItems],
+    () => (historyView ? groupHistoryItems(visibleItems, historyView) : groupWorkItems(visibleItems)),
+    [historyView, visibleItems],
   );
   const currentItems = useMemo(() => (items.data ?? []).filter((item) => !item.archived_at), [items.data]);
   const workStats = useMemo(() => summarizeWorkItems(currentItems), [currentItems]);
@@ -110,8 +113,8 @@ export function WorkItemsPage({ session }: { session: Session }) {
   });
 
   const selectedItems = useMemo(
-    () => (items.data ?? []).filter((item) => selectedIds.has(item.id)),
-    [items.data, selectedIds],
+    () => loadedItems.filter((item) => selectedIds.has(item.id)),
+    [loadedItems, selectedIds],
   );
 
   function toggleSelect(itemId: string) {
@@ -134,6 +137,7 @@ export function WorkItemsPage({ session }: { session: Session }) {
     targets: Item[],
     action: (item: Item) => Promise<unknown>,
     revert: (item: Item) => Promise<unknown>,
+    onAfterChange?: () => void,
   ) {
     if (targets.length === 0) return;
     setBatchBusy(true);
@@ -141,13 +145,17 @@ export function WorkItemsPage({ session }: { session: Session }) {
     const { succeeded, failed } = await runBatchSequential(targets, action);
     setBatchBusy(false);
     invalidateWork();
+    onAfterChange?.();
     if (failed.length > 0) {
       setBatchError(`${failed.length} 条失败（可能已被并发修改），已保留选中`);
       setSelectedIds(new Set(failed.map((item) => item.id)));
       return;
     }
     undo.pushUndo(`${label} ${succeeded.length} 条`, () => {
-      void runBatchSequential(succeeded, revert).then(invalidateWork);
+      void runBatchSequential(succeeded, revert).then(() => {
+        invalidateWork();
+        onAfterChange?.();
+      });
     });
     exitSelectMode();
   }
@@ -194,6 +202,22 @@ export function WorkItemsPage({ session }: { session: Session }) {
         }),
       (item) => api.patchItem(session.csrf_token, item, { tag_ids: item.tags.map((tag) => tag.id) }),
     );
+
+  const batchDelete = () =>
+    runBatch(
+      '已批量删除',
+      selectedItems,
+      (item) => api.deleteItem(session.csrf_token, item.id),
+      (item) => api.restoreDeletedItem(session.csrf_token, item.id),
+      () => {
+        setSelectedId(null);
+        queryClient.invalidateQueries({ queryKey: ['items-trash'] });
+      },
+    );
+
+  function loadMoreHistory() {
+    historyItems.loadMore();
+  }
 
   function toggleWithUndo(item: Item) {
     const next = item.status === 'done' ? 'planned' : 'done';
@@ -254,6 +278,12 @@ export function WorkItemsPage({ session }: { session: Session }) {
   );
 
   const workFilterCount = (quickFilter !== 'all' ? 1 : 0) + (highPriority ? 1 : 0);
+  const listError = isHistoryView ? historyItems.query.error : items.error;
+  const listErrorMessage = listError ? (listError instanceof Error ? listError.message : String(listError)) : null;
+  const retryList = () => {
+    if (isHistoryView) void historyItems.query.refetch();
+    else void items.refetch();
+  };
 
   return (
     <section className="page work-page">
@@ -261,7 +291,9 @@ export function WorkItemsPage({ session }: { session: Session }) {
         <div>
           <h1>工作事项</h1>
           <p>
-            {visibleItems.length} 条 · 今天/逾期 {workStats.today} · 等待 {workStats.waiting} · 未排期 {workStats.unscheduled} · 新建 ⌘K
+            {isHistoryView
+              ? `已显示 ${historyItems.visibleCount}/${historyItems.totalCount} 条 · 按周展示`
+              : `${visibleItems.length} 条 · 今天/逾期 ${workStats.today} · 等待 ${workStats.waiting} · 未排期 ${workStats.unscheduled} · 新建 ⌘K`}
           </p>
         </div>
       </header>
@@ -323,10 +355,10 @@ export function WorkItemsPage({ session }: { session: Session }) {
         </div>
       )}
 
-      <ListState loading={items.isLoading} error={items.isError ? String(items.error.message) : null} onRetry={() => items.refetch()}>
+      <ListState loading={isHistoryView ? historyItems.query.isLoading : items.isLoading} error={listErrorMessage} onRetry={retryList}>
         {visibleItems.length === 0 ? (
           <EmptyState
-            filtered={Boolean(search.trim()) || quickFilter !== 'all' || view !== 'current'}
+            filtered={Boolean(search.trim()) || (view === 'current' && quickFilter !== 'all') || view !== 'current'}
             onClearFilters={() => {
               setSearch('');
               setQuickFilter('all');
@@ -336,11 +368,12 @@ export function WorkItemsPage({ session }: { session: Session }) {
             {view === 'current' ? '暂无工作事项，按 ⌘K 快速添加第一条' : view === 'done' ? '暂无已完成事项' : '暂无归档事项'}
           </EmptyState>
         ) : (
-          <div className="work-board">
+          <div className={isHistoryView ? 'work-board history-list' : 'work-board'}>
             {grouped.map((group) => (
-              <section className="work-group" key={group.label}>
+              <section className={isHistoryView ? 'work-group history-group' : 'work-group'} key={group.label}>
                 <h2>
-                  {group.label} <span>{group.items.length}</span>
+                  {isHistoryView ? <span className="history-week-label">{group.label}</span> : group.label}
+                  <span>{group.items.length} 条</span>
                 </h2>
                 {group.items.length === 0 && <p className="empty">暂无事项</p>}
                 {group.items.map((item) => (
@@ -363,6 +396,16 @@ export function WorkItemsPage({ session }: { session: Session }) {
                 ))}
               </section>
             ))}
+            {isHistoryView && historyItems.hasMore && (
+              <div className="history-load-more">
+                <button className="secondary" type="button" disabled={historyItems.query.isFetchingNextPage} onClick={loadMoreHistory}>
+                  {historyItems.query.isFetchingNextPage ? '加载中…' : '加载更多'}
+                </button>
+                <span>
+                  已显示 {historyItems.visibleCount}/{historyItems.totalCount} 条
+                </span>
+              </div>
+            )}
           </div>
         )}
       </ListState>
@@ -377,9 +420,13 @@ export function WorkItemsPage({ session }: { session: Session }) {
           onTomorrow={() => runBatchReschedule('tomorrow')}
           onNextWeek={() => runBatchReschedule('next_week')}
           onArchive={batchArchive}
+          onDelete={isHistoryView ? batchDelete : undefined}
           onAddTags={batchAddTags}
           onCreateTag={(name, parentId) => createTag.mutate({ name, parentId })}
           onExit={exitSelectMode}
+          showComplete={!isHistoryView}
+          showReschedule={!isHistoryView}
+          showArchive={view !== 'archived'}
         />
       )}
 

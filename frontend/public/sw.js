@@ -1,5 +1,5 @@
-/* 事务台 Service Worker：静态壳 cache-first，/api 一律 network（不缓存数据）。 */
-const SHELL_CACHE = 'pa-shell-v2';
+/* EventFlowOS Service Worker：静态壳 cache-first，/api 一律 network（不缓存数据）。 */
+const SHELL_CACHE = 'eventflowos-shell-v1';
 const SHELL_ASSETS = ['/manifest.webmanifest', '/icon.svg'];
 
 self.addEventListener('install', (event) => {

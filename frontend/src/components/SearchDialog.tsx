@@ -6,7 +6,7 @@ import { useDialogA11y } from '../hooks/useDialogA11y';
 import { scheduleBadge } from '../lib/dates';
 import { scopeLabel } from '../lib/labels';
 
-/** 全局搜索（⌘P）：服务端搜索工作+个人事项的标题/备注，Enter 打开选中结果。 */
+/** 全局搜索（⌘P）：服务端搜索工作+生活事项的标题/备注，Enter 打开选中结果。 */
 export function SearchDialog({ onClose, onOpenItem }: { onClose: () => void; onOpenItem: (item: Item) => void }) {
   const panelRef = useRef<HTMLDivElement>(null);
   useDialogA11y(panelRef, onClose);

@@ -1,4 +1,4 @@
-import type { ItemStatus, Priority, ProjectHealth, ProjectStatus, Scope } from '../api/client';
+import type { EventFormat, ItemStatus, Priority, ProjectHealth, ProjectStatus, Scope } from '../api/client';
 
 export type ItemListView = 'current' | 'done' | 'archived';
 
@@ -22,6 +22,12 @@ export const priorityLabels: Record<Priority, string> = {
   normal: '普通',
   high: '高',
   urgent: '紧急',
+};
+
+export const eventFormatLabels: Record<EventFormat, string> = {
+  online: '线上',
+  offline: '线下',
+  hybrid: '线上+线下',
 };
 
 export const projectStatusLabels: Record<ProjectStatus, string> = {

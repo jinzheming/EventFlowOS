@@ -1,3 +1,4 @@
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Response
@@ -11,7 +12,15 @@ from personal_affairs.api.dependencies import (
     settings,
 )
 from personal_affairs.api.problem_details import not_found
-from personal_affairs.api.schemas import ItemCreate, ItemOut, ItemPatch, ReminderOut, ReminderPut
+from personal_affairs.api.schemas import (
+    ItemCreate,
+    ItemOut,
+    ItemPageOut,
+    ItemPatch,
+    ReminderOut,
+    ReminderPut,
+)
+from personal_affairs.application.item_intake_normalizer import ItemIntakeNormalizer
 from personal_affairs.application.item_service import ItemService
 from personal_affairs.application.reminder_service import ReminderService
 from personal_affairs.config import Settings
@@ -42,14 +51,35 @@ def list_items(
     return ItemsRepository(conn).list_items(user_id, scope, include_archived, project_id, status, limit, search, deleted)
 
 
+@router.get("/history", response_model=ItemPageOut)
+def list_history_items(
+    scope: ItemScope,
+    view: Literal["done", "archived"],
+    search: str | None = Query(default=None, max_length=100),
+    limit: int = Query(30, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    user_id: UUID = Depends(current_user_id),
+    conn: Connection = Depends(db_conn),
+) -> dict:
+    rows, total = ItemsRepository(conn).list_history_items(user_id, scope, view, limit, offset, search)
+    return {
+        "items": rows,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + len(rows) < total,
+    }
+
+
 @router.post("", response_model=ItemOut, dependencies=[Depends(require_csrf)])
 def create_item(
     request: ItemCreate,
     response: Response,
     user_id: UUID = Depends(current_user_id),
     conn: Connection = Depends(db_conn),
+    cfg: Settings = Depends(settings),
 ) -> dict:
-    service = ItemService(ItemsRepository(conn), ActivityRepository(conn))
+    service = ItemService(ItemsRepository(conn), ActivityRepository(conn), ItemIntakeNormalizer(cfg))
     item, created = service.create(user_id, request)
     _etag(response, item)
     response.status_code = 201 if created else 200

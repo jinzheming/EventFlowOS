@@ -12,6 +12,7 @@ import { RecurrenceFields } from './RecurrenceFields';
 import { ReminderOffsetSelect } from './ReminderOffsetSelect';
 import { ReminderPreviewHint } from './ReminderPreviewHint';
 import { EstimatedDurationSelect } from './EstimatedDurationSelect';
+import { EventFormatFields } from './EventFormatFields';
 import { QuarterTimePicker } from './QuarterTimePicker';
 import { PersonPicker } from './PersonPicker';
 import { TagPicker } from './TagPicker';
@@ -108,6 +109,7 @@ export function WorkItemDrawer({
           <input data-autofocus value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} />
         </label>
         <MeetingInfoPanel item={item} />
+        <EventFormatFields value={draft} onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))} />
         <div className="field-grid">
           <label>
             状态

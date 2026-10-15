@@ -25,6 +25,8 @@ def test_parse_tencent_meeting_invite_extracts_structured_fields() -> None:
     assert parsed.missing_fields == []
     assert "原始文本" not in parsed.notes
     assert parsed.proposed_item["status"] == "planned"
+    assert parsed.proposed_item["event_format"] == "online"
+    assert parsed.proposed_item["event_url"] == "https://meeting.tencent.com/dm/AbCdEf1234"
 
 
 def test_parse_plain_meeting_number_as_identifier_for_cli_completion() -> None:
@@ -54,3 +56,5 @@ def test_merge_tmeet_details_fills_missing_title_and_schedule() -> None:
     assert merged.estimated_minutes == 30
     assert merged.join_url == "https://meeting.tencent.com/dm/AbCdEf1234"
     assert merged.missing_fields == []
+    assert merged.proposed_item["event_format"] == "online"
+    assert merged.proposed_item["event_url"] == "https://meeting.tencent.com/dm/AbCdEf1234"

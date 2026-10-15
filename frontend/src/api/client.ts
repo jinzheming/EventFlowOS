@@ -1,5 +1,7 @@
 export type Scope = 'work' | 'personal';
 export type ItemStatus = 'inbox' | 'planned' | 'in_progress' | 'waiting' | 'done' | 'cancelled';
+export type ItemHistoryView = 'done' | 'archived';
+export type EventFormat = 'online' | 'offline' | 'hybrid';
 export type Priority = 'low' | 'normal' | 'high' | 'urgent';
 export type ProjectStatus = 'planned' | 'active' | 'on_hold' | 'completed' | 'cancelled';
 export type ProjectHealth = 'unknown' | 'on_track' | 'at_risk' | 'blocked';
@@ -8,12 +10,34 @@ export type AgentProposalSourceType = 'agent' | 'feishu_im' | 'tencent_meeting';
 export type AgentProposalRiskTier = 'l1' | 'l2' | 'l3';
 export type AgentProposalState = 'pending' | 'approved' | 'edited_approved' | 'rejected' | 'ignored' | 'expired';
 export type AgentProposalAction = 'create_item' | 'patch_item';
+export type IntakeOrigin = 'web' | 'agent' | 'api';
+export type IntakeNormalization = 'none' | 'llm';
 
 export interface Session {
   user_id: string;
   username: string;
   csrf_token: string;
   timezone: string;
+}
+
+type ProblemPayload = {
+  code?: string;
+  detail?: string;
+  retryable?: boolean;
+};
+
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+  readonly retryable: boolean;
+
+  constructor(status: number, problem: ProblemPayload, fallback: string) {
+    super(problem.detail || fallback);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = problem.code ?? null;
+    this.retryable = problem.retryable ?? false;
+  }
 }
 
 export interface PatToken {
@@ -64,6 +88,211 @@ export interface WebhookEvent {
   last_error_code: string | null;
   last_error_message: string | null;
 }
+
+export type WriteTargetType = 'feishu_bitable' | 'custom';
+export type WriteTargetFormat = 'feishu_bitable_item_v1' | 'compact_item_v1' | 'custom_json_v1';
+
+export interface WriteTargetPreset {
+  target_type: WriteTargetType;
+  label: string;
+  format_key: WriteTargetFormat;
+  field_mapping: Record<string, string>;
+  description: string;
+}
+
+export interface WriteTarget {
+  id: string;
+  name: string;
+  target_type: WriteTargetType;
+  target_url: string;
+  format_key: WriteTargetFormat;
+  field_mapping: Record<string, string>;
+  instructions: string | null;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type WriteTargetPayload = {
+  name: string;
+  target_type: WriteTargetType;
+  target_url: string;
+  format_key?: WriteTargetFormat;
+  field_mapping?: Record<string, string>;
+  instructions?: string | null;
+  active?: boolean;
+};
+
+export type LLMProviderKey = 'litellm' | 'openai_compatible' | 'ollama' | 'custom';
+export type LLMScopeType = 'global' | 'project' | 'source_type' | 'item_type' | 'risk_tier';
+export type LLMPrivacyTier = 'standard' | 'private' | 'sensitive';
+
+export type ExternalProviderKey = 'feishu' | 'webhook' | 'notion' | 'calendar' | 'custom_http';
+export type ExternalCapability = 'write' | 'read' | 'sync' | 'notify' | 'lookup' | 'export';
+export type ExternalScopeType = 'global' | 'project' | 'item_type' | 'source_type' | 'person' | 'tag';
+export type ExternalConflictPolicy = 'append' | 'update' | 'skip' | 'ask';
+
+export interface ExternalProfilePreset {
+  preset_key: string;
+  label: string;
+  provider_key: ExternalProviderKey;
+  capability: ExternalCapability;
+  auth_ref: string | null;
+  default_format_key: string;
+  default_field_mapping: Record<string, unknown>;
+  description: string;
+}
+
+export interface ExternalPurposePreset {
+  purpose_key: string;
+  label: string;
+  capabilities: ExternalCapability[];
+  description: string;
+}
+
+export interface ExternalProfile {
+  id: string;
+  name: string;
+  provider_key: ExternalProviderKey;
+  preset_key: string | null;
+  capability: ExternalCapability;
+  auth_ref: string | null;
+  active: boolean;
+  priority: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ExternalProfilePayload = {
+  name: string;
+  provider_key: ExternalProviderKey;
+  preset_key?: string | null;
+  capability: ExternalCapability;
+  auth_ref?: string | null;
+  active?: boolean;
+  priority?: number;
+};
+
+export interface ExternalBinding {
+  id: string;
+  profile_id: string;
+  purpose_key: string;
+  scope_type: ExternalScopeType;
+  scope_value: string | null;
+  target_ref: string;
+  format_key: string;
+  field_mapping: Record<string, unknown>;
+  value_mapping: Record<string, unknown>;
+  instructions: string | null;
+  conflict_policy: ExternalConflictPolicy;
+  dry_run: boolean;
+  active: boolean;
+  priority: number;
+  last_used_at: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+  profile_name: string;
+  provider_key: ExternalProviderKey;
+  preset_key: string | null;
+  capability: ExternalCapability;
+  auth_ref: string | null;
+}
+
+export type ExternalBindingPayload = {
+  profile_id: string;
+  purpose_key: string;
+  scope_type?: ExternalScopeType;
+  scope_value?: string | null;
+  target_ref: string;
+  format_key: string;
+  field_mapping?: Record<string, unknown>;
+  value_mapping?: Record<string, unknown>;
+  instructions?: string | null;
+  conflict_policy?: ExternalConflictPolicy;
+  dry_run?: boolean;
+  active?: boolean;
+  priority?: number;
+};
+
+export interface LLMProfilePreset {
+  preset_key: string;
+  label: string;
+  provider_key: LLMProviderKey;
+  base_url: string | null;
+  model_name: string;
+  auth_ref: string | null;
+  capabilities: Record<string, unknown>;
+  default_params: Record<string, unknown>;
+  privacy_tier: LLMPrivacyTier;
+  description: string;
+}
+
+export interface LLMPurposePreset {
+  purpose_key: string;
+  label: string;
+  required_capabilities: string[];
+  description: string;
+}
+
+export interface LLMProfile {
+  id: string;
+  name: string;
+  provider_key: LLMProviderKey;
+  preset_key: string | null;
+  base_url: string | null;
+  model_name: string;
+  auth_ref: string | null;
+  capabilities: Record<string, unknown>;
+  default_params: Record<string, unknown>;
+  privacy_tier: LLMPrivacyTier;
+  active: boolean;
+  priority: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export type LLMProfilePayload = {
+  name: string;
+  provider_key: LLMProviderKey;
+  preset_key?: string | null;
+  base_url?: string | null;
+  model_name: string;
+  auth_ref?: string | null;
+  capabilities?: Record<string, unknown>;
+  default_params?: Record<string, unknown>;
+  privacy_tier?: LLMPrivacyTier;
+  active?: boolean;
+  priority?: number;
+};
+
+export interface LLMBinding {
+  id: string;
+  purpose_key: string;
+  scope_type: LLMScopeType;
+  scope_value: string | null;
+  profile_id: string;
+  override_params: Record<string, unknown>;
+  instructions: string | null;
+  active: boolean;
+  priority: number;
+  created_at: string;
+  updated_at: string;
+  profile_name: string;
+  provider_key: LLMProviderKey;
+  model_name: string;
+}
+
+export type LLMBindingPayload = {
+  purpose_key: string;
+  scope_type?: LLMScopeType;
+  scope_value?: string | null;
+  profile_id: string;
+  override_params?: Record<string, unknown>;
+  instructions?: string | null;
+  active?: boolean;
+  priority?: number;
+};
 
 export type PersonRole = 'together' | 'waiting';
 
@@ -117,6 +346,9 @@ export interface Item {
   due_at: string | null;
   start_date: string | null;
   due_date: string | null;
+  event_format: EventFormat | null;
+  event_location: string | null;
+  event_url: string | null;
   waiting_on: string | null;
   waiting_follow_up_date: string | null;
   recurrence_freq: 'daily' | 'weekly' | 'monthly' | null;
@@ -139,7 +371,22 @@ export interface Item {
   people: ItemPerson[];
 }
 
-export type ItemPayload = Omit<Partial<Item>, 'people'> & { tag_ids?: string[] | null; people?: Array<{ person_id: string; role: PersonRole } | ItemPerson> | null };
+export interface ItemHistoryPage {
+  items: Item[];
+  total: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+}
+
+export type ItemPayload = Omit<Partial<Item>, 'people'> & {
+  tag_ids?: string[] | null;
+  people?: Array<{ person_id: string; role: PersonRole } | ItemPerson> | null;
+  intake_text?: string | null;
+  intake_scope_source?: string | null;
+  intake_origin?: IntakeOrigin | null;
+  intake_normalization?: IntakeNormalization | null;
+};
 
 export interface AgentProposal {
   id: string;
@@ -282,6 +529,9 @@ export interface CalendarEvent {
   project_id: string | null;
   status: string;
   color: string;
+  event_format: EventFormat | null;
+  event_location: string | null;
+  event_url: string | null;
 }
 
 export interface Reminder {
@@ -340,21 +590,50 @@ export interface Preferences {
   ics_token: string | null;
 }
 
-async function request<T>(path: string, init: RequestInit = {}, csrf?: string): Promise<T> {
+async function executeRequest<T>(path: string, init: RequestInit, csrf?: string): Promise<T> {
+  const headers = new Headers(init.headers);
+  headers.set('content-type', 'application/json');
+  if (csrf) headers.set('x-csrf-token', csrf);
   const response = await fetch(`/api/v1${path}`, {
     ...init,
-    headers: {
-      'content-type': 'application/json',
-      ...(csrf ? { 'x-csrf-token': csrf } : {}),
-      ...(init.headers ?? {}),
-    },
+    headers,
   });
   if (!response.ok) {
-    const problem = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new Error(problem.detail || response.statusText);
+    const problem = (await response.json().catch(() => ({}))) as ProblemPayload;
+    throw new ApiError(response.status, problem, response.statusText);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
+}
+
+async function request<T>(path: string, init: RequestInit = {}, csrf?: string): Promise<T> {
+  try {
+    return await executeRequest<T>(path, init, csrf);
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 403 || error.code !== 'CSRF_REQUIRED' || !csrf) {
+      if (error instanceof ApiError && init.method && init.method !== 'GET' && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('pa-api-error', { detail: error }));
+      }
+      throw error;
+    }
+
+    const sessionResponse = await fetch('/api/v1/auth/session');
+    if (!sessionResponse.ok) {
+      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('pa-api-error', { detail: error }));
+      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('pa-auth-expired'));
+      throw error;
+    }
+    const session = (await sessionResponse.json()) as Session;
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('pa-session-refreshed', { detail: session }));
+    try {
+      return await executeRequest<T>(path, init, session.csrf_token);
+    } catch (retryError) {
+      if (retryError instanceof ApiError && init.method && init.method !== 'GET' && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('pa-api-error', { detail: retryError }));
+      }
+      throw retryError;
+    }
+  }
 }
 
 export const api = {
@@ -372,10 +651,55 @@ export const api = {
   deleteWebhook: (csrf: string, webhookId: string) =>
     request<void>(`/webhooks/${webhookId}`, { method: 'DELETE' }, csrf),
   webhookEvents: (limit = 20) => request<WebhookEvent[]>(`/webhooks/events?limit=${limit}`),
-  items: (scope: Scope, includeArchived = false, search = '') =>
+  writeTargetPresets: () => request<WriteTargetPreset[]>('/write-targets/presets'),
+  writeTargets: () => request<WriteTarget[]>('/write-targets'),
+  createWriteTarget: (csrf: string, payload: WriteTargetPayload) =>
+    request<WriteTarget>('/write-targets', { method: 'POST', body: JSON.stringify(payload) }, csrf),
+  patchWriteTarget: (csrf: string, targetId: string, payload: Partial<WriteTargetPayload>) =>
+    request<WriteTarget>(`/write-targets/${targetId}`, { method: 'PATCH', body: JSON.stringify(payload) }, csrf),
+  deleteWriteTarget: (csrf: string, targetId: string) =>
+    request<void>(`/write-targets/${targetId}`, { method: 'DELETE' }, csrf),
+  externalProfilePresets: () => request<ExternalProfilePreset[]>('/external-profiles/presets'),
+  externalPurposePresets: () => request<ExternalPurposePreset[]>('/external-profiles/purposes'),
+  externalProfiles: () => request<ExternalProfile[]>('/external-profiles'),
+  createExternalProfile: (csrf: string, payload: ExternalProfilePayload) =>
+    request<ExternalProfile>('/external-profiles', { method: 'POST', body: JSON.stringify(payload) }, csrf),
+  patchExternalProfile: (csrf: string, profileId: string, payload: Partial<ExternalProfilePayload>) =>
+    request<ExternalProfile>(`/external-profiles/${profileId}`, { method: 'PATCH', body: JSON.stringify(payload) }, csrf),
+  deleteExternalProfile: (csrf: string, profileId: string) =>
+    request<void>(`/external-profiles/${profileId}`, { method: 'DELETE' }, csrf),
+  externalBindings: () => request<ExternalBinding[]>('/external-bindings'),
+  createExternalBinding: (csrf: string, payload: ExternalBindingPayload) =>
+    request<ExternalBinding>('/external-bindings', { method: 'POST', body: JSON.stringify(payload) }, csrf),
+  patchExternalBinding: (csrf: string, bindingId: string, payload: Partial<ExternalBindingPayload>) =>
+    request<ExternalBinding>(`/external-bindings/${bindingId}`, { method: 'PATCH', body: JSON.stringify(payload) }, csrf),
+  deleteExternalBinding: (csrf: string, bindingId: string) =>
+    request<void>(`/external-bindings/${bindingId}`, { method: 'DELETE' }, csrf),
+  llmProfilePresets: () => request<LLMProfilePreset[]>('/llm-profiles/presets'),
+  llmPurposePresets: () => request<LLMPurposePreset[]>('/llm-profiles/purposes'),
+  llmProfiles: () => request<LLMProfile[]>('/llm-profiles'),
+  createLLMProfile: (csrf: string, payload: LLMProfilePayload) =>
+    request<LLMProfile>('/llm-profiles', { method: 'POST', body: JSON.stringify(payload) }, csrf),
+  patchLLMProfile: (csrf: string, profileId: string, payload: Partial<LLMProfilePayload>) =>
+    request<LLMProfile>(`/llm-profiles/${profileId}`, { method: 'PATCH', body: JSON.stringify(payload) }, csrf),
+  deleteLLMProfile: (csrf: string, profileId: string) =>
+    request<void>(`/llm-profiles/${profileId}`, { method: 'DELETE' }, csrf),
+  llmBindings: () => request<LLMBinding[]>('/llm-bindings'),
+  createLLMBinding: (csrf: string, payload: LLMBindingPayload) =>
+    request<LLMBinding>('/llm-bindings', { method: 'POST', body: JSON.stringify(payload) }, csrf),
+  patchLLMBinding: (csrf: string, bindingId: string, payload: Partial<LLMBindingPayload>) =>
+    request<LLMBinding>(`/llm-bindings/${bindingId}`, { method: 'PATCH', body: JSON.stringify(payload) }, csrf),
+  deleteLLMBinding: (csrf: string, bindingId: string) =>
+    request<void>(`/llm-bindings/${bindingId}`, { method: 'DELETE' }, csrf),
+  items: (scope: Scope, includeArchived = false, search = '', limit = 100) =>
     request<Item[]>(
-      `/items?scope=${scope}&include_archived=${includeArchived}${search ? `&search=${encodeURIComponent(search)}` : ''}`,
+      `/items?scope=${scope}&include_archived=${includeArchived}&limit=${limit}${search ? `&search=${encodeURIComponent(search)}` : ''}`,
     ),
+  historyItems: (scope: Scope, view: ItemHistoryView, search = '', limit = 30, offset = 0) => {
+    const query = new URLSearchParams({ scope, view, limit: String(limit), offset: String(offset) });
+    if (search.trim()) query.set('search', search.trim());
+    return request<ItemHistoryPage>(`/items/history?${query.toString()}`);
+  },
   agentProposals: (state: AgentProposalState = 'pending') =>
     request<AgentProposal[]>(`/agent-proposals?state=${state}&limit=500`),
   approveProposal: (csrf: string, proposalId: string, payload: { edited_payload?: Record<string, unknown>; decision_note?: string | null } = {}) =>

@@ -11,6 +11,7 @@ import { RecurrenceFields } from './RecurrenceFields';
 import { ReminderOffsetSelect } from './ReminderOffsetSelect';
 import { ReminderPreviewHint } from './ReminderPreviewHint';
 import { EstimatedDurationSelect } from './EstimatedDurationSelect';
+import { EventFormatFields } from './EventFormatFields';
 import { QuarterTimePicker } from './QuarterTimePicker';
 import { PersonPicker } from './PersonPicker';
 import { TagPicker } from './TagPicker';
@@ -91,8 +92,8 @@ export function PersonalItemDrawer({
       <form onSubmit={submit}>
         <header className="panel-header">
           <div>
-            <p className="eyebrow">个人事项</p>
-            <h2 id="personal-drawer-title">个人事项</h2>
+            <p className="eyebrow">生活事项</p>
+            <h2 id="personal-drawer-title">事项详情</h2>
           </div>
           <button className="icon-button" type="button" onClick={onClose} title="关闭">
             <X size={16} />
@@ -103,6 +104,7 @@ export function PersonalItemDrawer({
           <input data-autofocus value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} />
         </label>
         <MeetingInfoPanel item={item} />
+        <EventFormatFields value={draft} onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))} />
         <div className="field-grid">
           <label>
             开始日期

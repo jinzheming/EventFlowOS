@@ -1,4 +1,4 @@
-import type { Item, ItemPayload, ItemStatus, PersonRole, Priority, Scope } from '../api/client';
+import type { EventFormat, Item, ItemPayload, ItemStatus, PersonRole, Priority, Scope } from '../api/client';
 import { localDateTimeParts, localInputToISO } from './dates';
 import type { RecurrenceEnd, RecurrenceFreq } from './recurrence';
 import { buildRecurrenceRule, emptyRecurrenceFields, recurrenceFieldsFromItem } from './recurrence';
@@ -17,6 +17,9 @@ export type WorkDraft = {
   start_time: string;
   due_date: string;
   due_time: string;
+  event_format: EventFormat | '';
+  event_location: string;
+  event_url: string;
   waiting_on: string;
   people: DraftPerson[];
   waiting_follow_up: string;
@@ -38,6 +41,9 @@ export type PersonalDraft = {
   start_time: string;
   due_date: string;
   due_time: string;
+  event_format: EventFormat | '';
+  event_location: string;
+  event_url: string;
   waiting_on: string;
   people: DraftPerson[];
   recurrence_freq: RecurrenceFreq;
@@ -62,6 +68,9 @@ export function emptyWorkDraft(): WorkDraft {
     start_time: '',
     due_date: '',
     due_time: '',
+    event_format: '',
+    event_location: '',
+    event_url: '',
     waiting_on: '',
     people: [],
     waiting_follow_up: '',
@@ -81,6 +90,9 @@ export function emptyPersonalDraft(): PersonalDraft {
     start_time: '',
     due_date: '',
     due_time: '',
+    event_format: '',
+    event_location: '',
+    event_url: '',
     waiting_on: '',
     people: [],
     ...emptyRecurrenceFields(),
@@ -104,6 +116,9 @@ export function draftFromItem(item: Item): WorkDraft {
     start_time: startParts?.time ?? '',
     due_date: dueParts?.date ?? item.due_date ?? '',
     due_time: dueParts?.time ?? '',
+    event_format: item.event_format ?? '',
+    event_location: item.event_location ?? '',
+    event_url: item.event_url ?? '',
     waiting_on: item.waiting_on ?? '',
     people: (item.people ?? []).map((person) => ({ person_id: person.id, role: person.role })),
     waiting_follow_up: item.waiting_follow_up_date ?? '',
@@ -125,6 +140,9 @@ export function personalDraftFromItem(item: Item): PersonalDraft {
     start_time: startParts?.time ?? '',
     due_date: dueParts?.date ?? item.due_date ?? '',
     due_time: dueParts?.time ?? '',
+    event_format: item.event_format ?? '',
+    event_location: item.event_location ?? '',
+    event_url: item.event_url ?? '',
     waiting_on: item.waiting_on ?? '',
     people: (item.people ?? []).map((person) => ({ person_id: person.id, role: person.role })),
     ...recurrenceFieldsFromItem(item),
@@ -164,6 +182,7 @@ export function buildWorkPatch(draft: WorkDraft): ItemPayload {
     waiting_on: null,
     people: draft.people,
     waiting_follow_up_date: waiting ? draft.waiting_follow_up || null : null,
+    ...buildEventLocation(draft),
     ...buildRecurrenceRule(draft),
     estimated_minutes: draft.estimated_minutes ? Number(draft.estimated_minutes) : null,
     ...schedule,
@@ -208,6 +227,15 @@ export function buildSchedule(draft: Pick<WorkDraft, 'start_date' | 'start_time'
   };
 }
 
+function buildEventLocation(draft: Pick<WorkDraft | PersonalDraft, 'event_format' | 'event_location' | 'event_url'>): Pick<Item, 'event_format' | 'event_location' | 'event_url'> {
+  const format = draft.event_format || null;
+  return {
+    event_format: format,
+    event_location: format === 'offline' || format === 'hybrid' ? draft.event_location.trim() || null : null,
+    event_url: format === 'online' || format === 'hybrid' ? draft.event_url.trim() || null : null,
+  };
+}
+
 export function buildPersonalPayload(draft: PersonalDraft): ItemPayload & { title: string; scope: Scope } {
   return {
     ...buildPersonalPatch(draft),
@@ -225,6 +253,7 @@ export function buildPersonalPatch(draft: PersonalDraft): ItemPayload {
     notes: draft.notes.trim() || null,
     waiting_on: null,
     people: draft.people,
+    ...buildEventLocation(draft),
     ...buildRecurrenceRule(draft),
     estimated_minutes: draft.estimated_minutes ? Number(draft.estimated_minutes) : null,
     ...buildSchedule(draft),

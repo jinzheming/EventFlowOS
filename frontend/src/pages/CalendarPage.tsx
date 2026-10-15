@@ -17,6 +17,7 @@ import {
   dateOnlyLabel,
   dateOnlyTimeOptions,
   groupTimedSchedules,
+  hasAnySchedule,
   hasDateOnlySchedule,
   timedSchedulesForItem,
 } from '../lib/calendar';
@@ -80,8 +81,18 @@ export function CalendarPage({ session }: { session: Session }) {
     [allItems, projectById, scopeFilter, search, quickFilter],
   );
   const selected = allItems.find((item) => item.id === selectedId) ?? null;
-  const timedSchedules = useMemo(() => items.flatMap(timedSchedulesForItem).sort(compareTimedSchedules), [items]);
-  const dateOnlyItems = useMemo(() => items.filter(hasDateOnlySchedule).sort(compareDateOnlyItems), [items]);
+  const doneScheduledCount = useMemo(
+    () => items.filter((item) => item.status === 'done' && hasAnySchedule(item, { includeDone: true })).length,
+    [items],
+  );
+  const timedSchedules = useMemo(
+    () => items.flatMap((item) => timedSchedulesForItem(item, { includeDone: showDone })).sort(compareTimedSchedules),
+    [items, showDone],
+  );
+  const dateOnlyItems = useMemo(
+    () => items.filter((item) => hasDateOnlySchedule(item, { includeDone: showDone })).sort(compareDateOnlyItems),
+    [items, showDone],
+  );
   const grouped = useMemo(() => groupTimedSchedules(timedSchedules), [timedSchedules]);
   const todayCount = timedSchedules.filter((schedule) => localDateTimeParts(schedule.time).date === todayString()).length;
   const weekCount = timedSchedules.filter((schedule) => {
@@ -282,10 +293,11 @@ export function CalendarPage({ session }: { session: Session }) {
 
       {view === 'list' && (
         <div className="work-summary calendar-summary" aria-label="日程提醒概览">
-          <span>有具体时间 {timedSchedules.length}</span>
+          <span>具体时间条目 {timedSchedules.length}</span>
           <span>今天 {todayCount}</span>
           <span>未来 7 天 {weekCount}</span>
           <span>仅有日期 {dateOnlyItems.length}</span>
+          {showDone && <span>已完成 {doneScheduledCount}</span>}
         </div>
       )}
 

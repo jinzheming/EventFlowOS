@@ -34,6 +34,10 @@ class MeetingInviteParseResult:
             payload["due_at"] = self.due_at
         if self.estimated_minutes:
             payload["estimated_minutes"] = self.estimated_minutes
+        if self.join_url or self.meeting_id:
+            payload["event_format"] = "online"
+        if self.join_url:
+            payload["event_url"] = self.join_url
         return payload
 
 

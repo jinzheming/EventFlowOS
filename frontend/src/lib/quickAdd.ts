@@ -15,6 +15,10 @@ export type QuickAddParse = {
   person_role: 'together' | 'waiting' | null;
 };
 
+export type QuickAddParseOptions = {
+  referenceDate?: string | Date;
+};
+
 const WEEKDAYS: Record<string, number> = {
   一: 1,
   二: 2,
@@ -32,15 +36,99 @@ function pad(value: number) {
 
 function explicitDate(year: number, month: number, day: number): string | null {
   if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
   return `${year}-${pad(month)}-${pad(day)}`;
+}
+
+function normalizeReferenceDate(referenceDate?: string | Date): string {
+  if (!referenceDate) return addDaysString(0);
+  if (typeof referenceDate === 'string') return referenceDate.slice(0, 10);
+  return `${referenceDate.getUTCFullYear()}-${pad(referenceDate.getUTCMonth() + 1)}-${pad(referenceDate.getUTCDate())}`;
+}
+
+function addDaysFrom(referenceDate: string, days: number): string {
+  const [year, month, day] = referenceDate.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`;
+}
+
+function daysBetween(left: string, right: string): number {
+  const [leftYear, leftMonth, leftDay] = left.split('-').map(Number);
+  const [rightYear, rightMonth, rightDay] = right.split('-').map(Number);
+  const leftTime = Date.UTC(leftYear, leftMonth - 1, leftDay);
+  const rightTime = Date.UTC(rightYear, rightMonth - 1, rightDay);
+  return Math.round((leftTime - rightTime) / 86400000);
+}
+
+function resolveMonthDay(referenceDate: string, month: number, day: number, preferPast: boolean): string | null {
+  const [year] = referenceDate.split('-').map(Number);
+  const candidates = [year - 1, year, year + 1]
+    .map((candidateYear) => explicitDate(candidateYear, month, day))
+    .filter((value): value is string => Boolean(value));
+  const recentPast = candidates
+    .map((value) => ({ value, delta: daysBetween(referenceDate, value) }))
+    .filter((candidate) => candidate.delta >= 0 && candidate.delta <= 7)
+    .sort((a, b) => a.delta - b.delta)[0];
+  if (recentPast) return recentPast.value;
+
+  if (preferPast) {
+    const pastCandidates = candidates.filter((value) => value <= referenceDate).sort();
+    const past = pastCandidates[pastCandidates.length - 1];
+    if (past) return past;
+  }
+
+  return candidates.filter((value) => value >= referenceDate).sort()[0] ?? null;
+}
+
+function resolveDayOfMonth(referenceDate: string, day: number, preferPast: boolean): string | null {
+  const [year, month] = referenceDate.split('-').map(Number);
+  const candidates = [-1, 0, 1, 2]
+    .map((offset) => {
+      const monthStart = new Date(Date.UTC(year, month - 1 + offset, 1));
+      return explicitDate(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, day);
+    })
+    .filter((value): value is string => Boolean(value));
+  const recentPast = candidates
+    .map((value) => ({ value, delta: daysBetween(referenceDate, value) }))
+    .filter((candidate) => candidate.delta >= 0 && candidate.delta <= 7)
+    .sort((a, b) => a.delta - b.delta)[0];
+  if (recentPast) return recentPast.value;
+
+  if (preferPast) {
+    const pastCandidates = candidates.filter((value) => value <= referenceDate).sort();
+    const past = pastCandidates[pastCandidates.length - 1];
+    if (past) return past;
+  }
+
+  return candidates.filter((value) => value >= referenceDate).sort()[0] ?? null;
+}
+
+function nextWeekday(referenceDate: string, target: number): string {
+  const [year, month, day] = referenceDate.split('-').map(Number);
+  const dow = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  let delta = (target - dow + 7) % 7;
+  if (delta === 0) delta = 7;
+  return addDaysFrom(referenceDate, delta);
+}
+
+function relativeWeekday(referenceDate: string, target: number, prefix: string | undefined): string {
+  if (!prefix) return nextWeekday(referenceDate, target);
+  const [year, month, day] = referenceDate.split('-').map(Number);
+  const dow = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  const currentIso = dow === 0 ? 7 : dow;
+  const targetIso = target === 0 ? 7 : target;
+  const weekOffset = prefix === '上' ? -7 : prefix === '下' ? 7 : 0;
+  return addDaysFrom(referenceDate, targetIso - currentIso + weekOffset);
 }
 
 /**
  * Parse a quick-add line such as "明天下午3点 约牙医 提前1小时提醒 #个人".
  * Chinese-first; unknown fragments stay in the title.
  */
-export function parseQuickAdd(raw: string): QuickAddParse {
+export function parseQuickAdd(raw: string, options: QuickAddParseOptions = {}): QuickAddParse {
   let text = ` ${raw.trim()} `;
+  const referenceDate = normalizeReferenceDate(options.referenceDate);
   let scope: Scope | null = null;
   let startDate = '';
   let startTime = '';
@@ -118,6 +206,8 @@ export function parseQuickAdd(raw: string): QuickAddParse {
 
   const ymdMatch = text.match(/(\d{4})[-/年](\d{1,2})[-/月](\d{1,2})[日号]?/);
   const mdMatch = text.match(/(\d{1,2})月(\d{1,2})[日号]/);
+  const dayMatch = text.match(/(?:^|\s)(\d{1,2})[日号](?=\s|$)/);
+  const preferPastDate = /补录|回顾|上次|已完成|完成了|过去/.test(text);
   if (ymdMatch) {
     const parsed = explicitDate(Number(ymdMatch[1]), Number(ymdMatch[2]), Number(ymdMatch[3]));
     if (parsed) {
@@ -125,45 +215,47 @@ export function parseQuickAdd(raw: string): QuickAddParse {
       text = text.replace(ymdMatch[0], ' ');
     }
   } else if (mdMatch) {
-    const [year, month, day] = addDaysString(0).split('-').map(Number);
-    let parsed = explicitDate(year, Number(mdMatch[1]), Number(mdMatch[2]));
-    if (parsed && parsed < addDaysString(0)) {
-      parsed = explicitDate(year + 1, Number(mdMatch[1]), Number(mdMatch[2]));
-    }
+    const parsed = resolveMonthDay(referenceDate, Number(mdMatch[1]), Number(mdMatch[2]), preferPastDate);
     if (parsed) {
       startDate = parsed;
       text = text.replace(mdMatch[0], ' ');
     }
+  } else if (/大前天/.test(text)) {
+    startDate = addDaysFrom(referenceDate, -3);
+    text = text.replace(/大前天/, ' ');
+  } else if (/前天/.test(text)) {
+    startDate = addDaysFrom(referenceDate, -2);
+    text = text.replace(/前天/, ' ');
+  } else if (/昨天|昨日/.test(text)) {
+    startDate = addDaysFrom(referenceDate, -1);
+    text = text.replace(/昨天|昨日/, ' ');
   } else if (/大后天/.test(text)) {
-    startDate = addDaysString(3);
+    startDate = addDaysFrom(referenceDate, 3);
     text = text.replace(/大后天/, ' ');
   } else if (/后天/.test(text)) {
-    startDate = addDaysString(2);
+    startDate = addDaysFrom(referenceDate, 2);
     text = text.replace(/后天/, ' ');
   } else if (/明天|明日/.test(text)) {
-    startDate = addDaysString(1);
+    startDate = addDaysFrom(referenceDate, 1);
     text = text.replace(/明天|明日/, ' ');
   } else if (/今天|今日/.test(text)) {
-    startDate = addDaysString(0);
+    startDate = referenceDate;
     text = text.replace(/今天|今日/, ' ');
+  } else if (dayMatch) {
+    const parsed = resolveDayOfMonth(referenceDate, Number(dayMatch[1]), preferPastDate);
+    if (parsed) {
+      startDate = parsed;
+      text = text.replace(dayMatch[0], ' ');
+    }
   } else if (anchorWeekday) {
     const target = WEEKDAYS[anchorWeekday];
-    const [year, month, day] = addDaysString(0).split('-').map(Number);
-    const dow = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
-    let delta = (target - dow + 7) % 7;
-    if (delta === 0) delta = 7;
-    startDate = addDaysString(delta);
+    startDate = nextWeekday(referenceDate, target);
     anchorWeekday = null;
   } else {
-    const weekMatch = text.match(/(下?)(?:周|星期)([一二三四五六日天])/);
+    const weekMatch = text.match(/(上|本|下)?(?:周|星期)([一二三四五六日天])/);
     if (weekMatch) {
       const target = WEEKDAYS[weekMatch[2]];
-      const [year, month, day] = addDaysString(0).split('-').map(Number);
-      const dow = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
-      let delta = (target - dow + 7) % 7;
-      if (delta === 0) delta = 7;
-      if (weekMatch[1] === '下') delta += 7;
-      startDate = addDaysString(delta);
+      startDate = relativeWeekday(referenceDate, target, weekMatch[1]);
       text = text.replace(weekMatch[0], ' ');
     }
   }

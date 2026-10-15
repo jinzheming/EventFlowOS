@@ -40,6 +40,9 @@ class CalendarQueryService:
                         "project_id": item["project_id"],
                         "status": item["status"],
                         "color": "#0F766E" if kind == "work_item" else "#CA8A04",
+                        "event_format": item.get("event_format"),
+                        "event_location": item.get("event_location"),
+                        "event_url": item.get("event_url"),
                     }
                 )
         if "milestone" in selected:

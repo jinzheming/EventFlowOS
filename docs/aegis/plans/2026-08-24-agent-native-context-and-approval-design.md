@@ -20,7 +20,7 @@
   - 第一版 `tmeet` 能力限定为只读查询：允许 `meeting get` / 后续必要的只读 search；不开放 `meeting create`、`meeting update`、`meeting cancel`、录制、纪要或参会报告读取。
   - 若链接无法稳定解析会议号/会议 ID，或 CLI 未安装/未授权/查询失败/超时，则进入 L2 proposal，由用户补全确认。
 - **2026-08-24：`tmeet` CLI 只在服务端后台按需启用，不做前端/浏览器直连。**
-  - 前端只提交会议文本、会议号、会议 ID 或链接；所有 CLI 调用由 Personal Affairs 后端执行。
+  - 前端只提交会议文本、会议号、会议 ID 或链接；所有 CLI 调用由 EventFlowOS 后端执行。
   - `tmeet` 默认关闭，必须通过运行时配置显式启用，并设置命令路径、执行超时和查询失败降级。
   - OAuth/凭据只允许存在服务端 runtime secret 或 `tmeet` 自身授权目录中，禁止写入仓库、设计文档、OpenAPI 示例、前端 localStorage 或 webhook payload。
   - 后端只记录非敏感审计摘要，例如 `tmeet_enabled`、`lookup_method`、`lookup_status`、耗时和错误类别；不记录 token、完整凭据或不必要的会议隐私内容。
@@ -35,12 +35,12 @@
   - 外部上下文入口暂定为飞书 IM：用户把会议邀约、会议号、待办文本或上下文摘要发送给飞书机器人/指定会话，服务端接收文本后生成 `agent_proposals` 或触发腾讯会议解析。
   - Feishu IM 接入仍必须遵守 proposal-first 原则；除已确认的 L1 白名单外，不直接写正式事项。
 - **2026-08-24：飞书 IM 第一版只做机器人被动接收文本消息，不主动读取或轮询聊天记录。**
-  - Personal Affairs 只处理用户主动发送给机器人/指定会话的文本消息。
+  - EventFlowOS 只处理用户主动发送给机器人/指定会话的文本消息。
   - 不扫描历史聊天、不调用聊天记录搜索、不轮询会话、不读取未转发给机器人的上下文。
   - 飞书事件消息必须按消息 ID / event ID 做幂等去重；重复投递不得重复创建 proposal 或事项。
   - 该边界用于最小化权限、隐私扩散和重复处理风险。
 - **2026-08-24：`pa_find_free_slots` 保留在第一版，但只做只读空闲时间查询。**
-  - 第一版仅基于 Personal Affairs 内已有 `items` 与 milestones 计算空闲段，不接外部日历。
+  - 第一版仅基于 EventFlowOS 内已有 `items` 与 milestones 计算空闲段，不接外部日历。
   - 默认工作时间为 `09:00-18:00`，工具参数可覆盖；不自动创建、移动或取消事项。
   - 返回候选空闲段、冲突摘要和排除原因，供 Agent 生成 proposal 或回复用户。
 - **2026-08-24：`pa_get_executive_briefing` 保留在第一版，但只做只读结构化上下文快照。**
@@ -52,13 +52,13 @@
   - 修改后确认仅覆盖正式事项已有核心字段，例如标题、范围、状态、优先级、日期/时间、备注与提醒；不做复杂差异编辑器、拖拽排期、批量审批或多步骤自动化编排。
   - 原因：第一版关键风险是 proposal 幂等落库与审批事务闭环，复杂 UI 会扩大交付面，并推迟飞书 IM 文本入口和腾讯会议解析的验证。
 - **2026-08-24：源码对齐实现原则：入站飞书、出站 webhook、正式事项服务层三者分离。**
-  - 现有 `/api/v1/webhooks` 是 Personal Affairs 对外发送事件的订阅管理与 outbox 事件查看，不作为飞书 IM 入站回调入口。
+  - 现有 `/api/v1/webhooks` 是 EventFlowOS 对外发送事件的订阅管理与 outbox 事件查看，不作为飞书 IM 入站回调入口。
   - 飞书 IM 入站新增独立 integration route，并以独立幂等表记录飞书 `event_id` / `message_id`；重复投递不得重复创建 proposal 或事项。
   - proposal 批准后创建/修改正式事项必须复用现有 `ItemService.create/patch`，以保留日程校验、项目约束、people/tags、activity、提醒和出站事件语义。
 - **2026-08-24：Focus Shield 不进入第一版实现批次，仅作为后续独立小改候选。**
   - 第一版不要求外部 Agent 自动静默，也不生成专注结束摘要。
   - 原因：当前 focus start/stop 只写 `focus_sessions`，若新增 `focus.started` / `focus.ended` outbox 事件，需要同步扩展后端事件类型、webhook 设置选项与订阅语义；该改动不在“飞书 IM 文本入口 → proposal → 审批 → item”的主路径上。
-  - 后续如需要 Focus Shield，可单独增加 `focus.started` / `focus.ended` 出站事件，但仍不承诺 Personal Affairs 验证外部 Agent 是否静默。
+  - 后续如需要 Focus Shield，可单独增加 `focus.started` / `focus.ended` 出站事件，但仍不承诺 EventFlowOS 验证外部 Agent 是否静默。
 - **2026-08-24：Subtasks / Checklists 不进入第一版，仅作为后续 P2/P3 候选。**
   - 第一版不新增 `checklist_items` 表、子任务状态机、排序/完成度 API 或 MCP 更新接口。
   - Agent 拆解出的步骤可暂存在 proposal 的 `proposed_payload` / `evidence` 或正式事项 `notes` 中，必须由用户确认后再成为正式事项内容。
@@ -68,7 +68,7 @@
 
 ## 1. 核心设计理念 (Core Paradigm)
 
-传统的个人事务管理系统（如 Todoist、Things 3）以“人类手动创建、手动排期、手动勾选”为中心。
+传统事项管理系统（如 Todoist、Things 3）以“人类手动创建、手动排期、手动勾选”为中心。
 而在 **Agent 原生 (Agent-Native)** 架构下，核心逻辑发生根本演进：
 
 ```
@@ -160,8 +160,8 @@
 非目标：
 
 - 不读取腾讯会议录制、转写、智能纪要、参会报告。
-- 不通过 Personal Affairs 创建、更新或取消腾讯会议本身。
-- 不自动删除或取消 Personal Affairs 事项；会议取消/消失只生成 proposal。
+- 不通过 EventFlowOS 创建、更新或取消腾讯会议本身。
+- 不自动删除或取消 EventFlowOS 事项；会议取消/消失只生成 proposal。
 
 #### B. 事后会议纪要 / AI 录音解析（后续候选，不进第一版）
 - **输入样本**：腾讯会议 AI 妙记链接、导出纪要文本或截图。
@@ -181,11 +181,11 @@
 - **被动事件接收**：机器人只接收用户主动发送给它或指定会话的文本消息。
 - **独立入站路由**：新增 `POST /api/v1/integrations/feishu/im/events`，不复用 `/api/v1/webhooks` 出站订阅路由。
 - **服务端签名校验**：校验飞书 challenge、签名、时间戳/nonce；失败直接拒绝，不进入 proposal 解析。
-- **第一版用户映射**：通过服务端运行时配置绑定到一个 Personal Affairs 用户（例如默认 username / user_id）；暂不做多用户 Feishu identity 映射表。
+- **第一版用户映射**：通过服务端运行时配置绑定到一个 EventFlowOS 用户（例如默认 username / user_id）；暂不做多用户 Feishu identity 映射表。
 - **不主动读取历史**：不调用聊天记录搜索，不扫描群历史，不轮询会话列表，不读取用户未转发的消息。
 - **文本-only**：只处理纯文本与文本中的 URL；文件、图片、语音、卡片富文本、附件统一忽略或回复不支持。
 - **幂等去重**：以飞书 `message_id` / `event_id` 加 `tenant/open_chat_id` 作为幂等键，避免事件重放导致重复 proposal。
-- **权限边界**：飞书机器人只负责把文本转为 Personal Affairs proposal；除 L1 白名单会议邀约外，不直接写正式 `items`。
+- **权限边界**：飞书机器人只负责把文本转为 EventFlowOS proposal；除 L1 白名单会议邀约外，不直接写正式 `items`。
 
 - **单条/多条合并聊天记录**：
   - 识别模式：
@@ -306,14 +306,14 @@
 第一版边界：
 
 - 只读 MCP 工具，不写入 `items`、`agent_proposals` 或提醒。
-- 仅基于 Personal Affairs 当前日历数据计算：定时 work/personal items、milestones、未来 L1 腾讯会议事项。
+- 仅基于 EventFlowOS 当前日历数据计算：定时 work/personal items、milestones、未来 L1 腾讯会议事项。
 - 不接 Google Calendar、飞书日历、系统日历或腾讯会议自动同步结果之外的外部日历。
 - 默认可用时间为工作日 `09:00-18:00`；参数可覆盖 `preferred_hours`、日期范围、最小时长和缓冲时间。
 - 返回结构包含 `slots`、`conflicts`、`excluded_reasons`；Agent 如需排期，必须另行创建 proposal 或调用已有创建事项工具。
 
 ### 4.2 执行态上下文快照 (`pa_get_executive_briefing`)
 
-第一版保留 `pa_get_executive_briefing`，但严格限定为只读聚合工具，用于让 Agent 在接手前拿到当前 Personal Affairs 的关键执行态。
+第一版保留 `pa_get_executive_briefing`，但严格限定为只读聚合工具，用于让 Agent 在接手前拿到当前 EventFlowOS 的关键执行态。
 
 返回建议：
 
@@ -329,7 +329,7 @@
 
 - 只读，不写入 `items`、`agent_proposals`、reminders 或 outbox。
 - 不调用 LLM，不生成自然语言日报，不替代现有 `pa_daily_brief` prompt。
-- 不接外部日历或外部会议自动同步；只基于 Personal Affairs 数据库当前事实。
+- 不接外部日历或外部会议自动同步；只基于 EventFlowOS 数据库当前事实。
 - 返回结构化 JSON，排序规则固定且可测试，便于 Agent、CLI 或前端复用。
 
 ### 4.3 专注时段静默守门人 (Focus Shield Protocol)
@@ -466,7 +466,7 @@ CREATE INDEX IF NOT EXISTS ix_agent_ingest_events_user_created
 | `pa_reject_proposal` | `proposal_id, reason?` | 拒绝、忽略或关闭 proposal，不修改正式事项 |
 | `pa_parse_meeting_invite` | `raw_text: str` | 第一版专用于解析腾讯会议文本、会议号、会议 ID 或链接并提取结构化字段 |
 | `pa_get_executive_briefing` | `date?, window_days?, include_done?` | 只读返回今日事项、逾期、待审批 proposal、未处理提醒、冲突摘要和可选专注状态的结构化 JSON 快照；不生成 LLM 文案、不写数据 |
-| `pa_find_free_slots` | `duration_minutes, date_range, preferred_hours, buffer_minutes?` | 只读检索 Personal Affairs 日历中的空闲可用时间段；不自动排期 |
+| `pa_find_free_slots` | `duration_minutes, date_range, preferred_hours, buffer_minutes?` | 只读检索 EventFlowOS 日历中的空闲可用时间段；不自动排期 |
 
 ---
 
