@@ -8,6 +8,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import logging
 from datetime import UTC, datetime
 from socket import gethostname
 from uuid import UUID
@@ -17,13 +18,16 @@ import httpx
 from personal_affairs.application.webhook_urls import WebhookUrlError, validate_webhook_url
 from personal_affairs.config import get_settings
 from personal_affairs.domain.reminder_state import next_retry_at
-from personal_affairs.storage.database import connection
+from personal_affairs.storage.database import close_pool, connection
 from personal_affairs.storage.repositories.event_outbox import EventOutboxRepository
 from personal_affairs.storage.repositories.webhooks import WebhookSubscriptionsRepository
 
 
 def _worker_id() -> str:
     return f"{gethostname()}:{id(object())}"
+
+
+logger = logging.getLogger(__name__)
 
 
 def sign_payload(secret: str, body: bytes) -> str:
@@ -117,7 +121,12 @@ async def run_forever() -> None:
     cfg = get_settings()
     worker_id = _worker_id()
     while True:
-        await publish_once(worker_id)
+        try:
+            await publish_once(worker_id)
+        except Exception:
+            # Keep the outbox publisher alive across transient database outages.
+            logger.exception("Webhook worker iteration failed; retrying")
+            close_pool()
         await asyncio.sleep(cfg.webhook_poll_seconds)
 
 

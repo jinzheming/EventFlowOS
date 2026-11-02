@@ -19,6 +19,8 @@ def get_pool(settings: Settings | None = None) -> ConnectionPool:
             min_size=resolved.database_min_size,
             max_size=resolved.database_max_size,
             kwargs={"row_factory": dict_row},
+            timeout=resolved.database_pool_timeout_seconds,
+            reconnect_timeout=resolved.database_reconnect_timeout_seconds,
             open=True,
         )
     return _pool

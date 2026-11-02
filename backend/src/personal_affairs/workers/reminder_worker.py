@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import json
+import logging
 from datetime import UTC, datetime
 from socket import gethostname
 from uuid import UUID
@@ -11,7 +12,7 @@ from personal_affairs.config import Settings, get_settings
 from personal_affairs.domain.enums import DeliveryChannel, DeliveryStatus
 from personal_affairs.domain.reminder_state import classify_notification_error, next_retry_at
 from personal_affairs.notifications.adapters import NotificationAdapter
-from personal_affairs.storage.database import connection
+from personal_affairs.storage.database import close_pool, connection
 from personal_affairs.storage.repositories.event_outbox import EventOutboxRepository
 from personal_affairs.storage.repositories.items import ItemsRepository
 from personal_affairs.storage.repositories.push import PushRepository
@@ -20,6 +21,9 @@ from personal_affairs.storage.repositories.reminders import RemindersRepository
 
 def _worker_id() -> str:
     return f"{gethostname()}:{id(object())}"
+
+
+logger = logging.getLogger(__name__)
 
 
 async def deliver_once(worker_id: str) -> int:
@@ -187,10 +191,16 @@ async def run_forever() -> None:
     cfg = get_settings()
     worker_id = _worker_id()
     while True:
-        await deliver_once(worker_id)
-        # digest failures must never crash the reminder loop
-        with contextlib.suppress(Exception):
-            await dispatch_digests()
+        try:
+            await deliver_once(worker_id)
+            # Digest failures must never crash the reminder loop.
+            with contextlib.suppress(Exception):
+                await dispatch_digests()
+        except Exception:
+            # A database restart or transient network failure must not disable
+            # reminders until the container is manually recreated.
+            logger.exception("Reminder worker iteration failed; retrying")
+            close_pool()
         await asyncio.sleep(cfg.reminder_poll_seconds)
 
 
