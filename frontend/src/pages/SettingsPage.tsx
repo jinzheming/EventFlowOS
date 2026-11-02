@@ -759,14 +759,15 @@ function McpSection({ session }: { session: Session }) {
     onError: (err) => setError(err.message),
   });
 
-  const mcpUrl = 'http://127.0.0.1:18099/mcp';
+  const mcpUrl = `${window.location.origin}/mcp`;
   const configSnippet = created
     ? JSON.stringify(
         {
           mcpServers: {
             'personal-affairs': {
+              type: 'http',
               url: mcpUrl,
-              env: { PERSONAL_AFFAIRS_MCP_TOKEN: created.token },
+              headers: { Authorization: `Bearer ${created.token}` },
             },
           },
         },
@@ -785,7 +786,7 @@ function McpSection({ session }: { session: Session }) {
     <>
       <section className="settings-card">
         <h2>MCP 接入（Agent 原生）</h2>
-        <p className="hint">AI agent（Claude / Codex 等）可通过 MCP 读写事项、人员与提醒，并查询/写入日程。端点仅服务器本地/Tailnet 内可达：</p>
+        <p className="hint">AI agent（Claude / Codex 等）可通过同域 HTTPS MCP 端点读写事项、人员与提醒，并查询/写入日程：</p>
         <div className="endpoint-row">
           <code>{mcpUrl}</code>
           <button className="ghost sm" type="button" onClick={() => copyText(mcpUrl, setEndpointCopied)}>
@@ -847,7 +848,7 @@ function McpSection({ session }: { session: Session }) {
             />
             <div className="panel-actions">
               <button className="ghost sm" type="button" onClick={() => copyText(configSnippet, setCopied)}>
-                复制 Claude 配置
+                复制 MCP 配置
               </button>
               <button className="ghost sm" type="button" onClick={() => setCreated(null)}>
                 我已保存，关闭
