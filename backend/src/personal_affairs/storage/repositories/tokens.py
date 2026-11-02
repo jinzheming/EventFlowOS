@@ -45,7 +45,7 @@ class TokensRepository:
         """
         row = self.conn.execute(
             """
-            SELECT t.id AS token_id, t.user_id, t.scopes,
+            SELECT t.id AS token_id, t.user_id, t.scopes, t.name AS token_name,
                    u.username::text AS username, u.timezone
             FROM personal_affairs.personal_access_tokens t
             JOIN personal_affairs.users u ON u.id = t.user_id

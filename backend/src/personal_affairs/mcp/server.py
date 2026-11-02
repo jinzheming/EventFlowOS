@@ -12,11 +12,16 @@ runtime annotations and stringified ones break it.
 import asyncio
 import json
 import os
+from contextvars import ContextVar
 from datetime import UTC, date, datetime
 from typing import Any
 from uuid import UUID
 
+from mcp.server.auth.middleware.auth_context import get_access_token
+from mcp.server.auth.provider import AccessToken
+from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from personal_affairs.api.schemas import (
     AgentProposalApprove,
@@ -46,6 +51,7 @@ from personal_affairs.application.schedule_feasibility import assess_schedule_fe
 from personal_affairs.application.tmeet_adapter import lookup_tencent_meeting
 from personal_affairs.config import get_settings
 from personal_affairs.domain.enums import AgentProposalState, ItemScope, ItemStatus, ReminderTiming
+from personal_affairs.domain.errors import DomainError, ErrorCode
 from personal_affairs.storage.database import connection
 from personal_affairs.storage.repositories.activity import ActivityRepository
 from personal_affairs.storage.repositories.agent_proposals import AgentProposalsRepository
@@ -57,11 +63,75 @@ from personal_affairs.storage.repositories.tokens import TokensRepository
 
 _MCP_HOST = os.environ.get("PERSONAL_AFFAIRS_MCP_HOST", "127.0.0.1")
 _MCP_PORT = int(os.environ.get("PERSONAL_AFFAIRS_MCP_PORT", "18099"))
+_MCP_DEFAULT_PUBLIC_HOST = next(
+    (
+        value.strip()
+        for value in os.environ.get("PERSONAL_AFFAIRS_ALLOWED_HOSTS", "").split(",")
+        if value.strip()
+        and ":" not in value
+        and value.strip() not in {"127.0.0.1", "localhost"}
+    ),
+    "127.0.0.1",
+)
+_MCP_ISSUER_URL = os.environ.get(
+    "PERSONAL_AFFAIRS_MCP_ISSUER_URL", f"https://{_MCP_DEFAULT_PUBLIC_HOST}"
+)
+_MCP_RESOURCE_URL = os.environ.get(
+    "PERSONAL_AFFAIRS_MCP_RESOURCE_URL", f"{_MCP_ISSUER_URL}/mcp"
+)
 
-mcp = FastMCP("Personal Affairs", host=_MCP_HOST, port=_MCP_PORT)
+
+def _mcp_allowed_hosts() -> list[str]:
+    configured = [
+        value.strip()
+        for value in os.environ.get("PERSONAL_AFFAIRS_ALLOWED_HOSTS", "").split(",")
+        if value.strip()
+    ]
+    hosts = {"127.0.0.1", "localhost", "[::1]", *configured}
+    return sorted(hosts | {f"{host}:*" for host in hosts})
+
+
+class _PersonalAccessTokenVerifier:
+    """Validate MCP Bearer tokens against the same PAT store as the REST API."""
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        def _resolve() -> dict | None:
+            with connection() as conn:
+                row = TokensRepository(conn).get_by_token(token)
+                conn.commit()
+                return row
+
+        row = await asyncio.to_thread(_resolve)
+        if not row:
+            return None
+        return AccessToken(
+            token=token,
+            client_id=str(row["user_id"]),
+            subject=str(row["user_id"]),
+            scopes=list(row["scopes"] or []),
+        )
+
+
+mcp = FastMCP(
+    "Personal Affairs",
+    host=_MCP_HOST,
+    port=_MCP_PORT,
+    auth=AuthSettings(
+        issuer_url=_MCP_ISSUER_URL,
+        resource_server_url=_MCP_RESOURCE_URL,
+    ),
+    token_verifier=_PersonalAccessTokenVerifier(),
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=_mcp_allowed_hosts(),
+    ),
+)
 
 
 def _pat() -> str:
+    access_token = get_access_token()
+    if access_token is not None:
+        return access_token.token
     token = os.environ.get("PERSONAL_AFFAIRS_MCP_TOKEN", "").strip()
     if not token:
         raise RuntimeError(
@@ -71,20 +141,41 @@ def _pat() -> str:
     return token
 
 
-async def _user_id() -> UUID:
-    def _resolve() -> UUID:
+_AGENT_ACTOR = "agent"
+_AGENT_TOKEN: ContextVar[str] = ContextVar("pa_agent_token", default="mcp")
+
+
+def _agent_source() -> dict[str, Any]:
+    """Provenance for writes made through the MCP surface."""
+    return {"surface": "mcp", "agent_token": _AGENT_TOKEN.get()}
+
+
+async def _user_id(*, require_write: bool) -> UUID:
+    def _resolve() -> tuple[UUID, str, list[str]]:
         with connection() as conn:
             row = TokensRepository(conn).get_by_token(_pat())
             if not row:
                 raise RuntimeError("invalid or expired personal access token")
-            return row["user_id"]
+            return (
+                row["user_id"],
+                str(row.get("token_name") or "mcp"),
+                list(row.get("scopes") or []),
+            )
 
-    return await asyncio.to_thread(_resolve)
+    user_id, token_name, scopes = await asyncio.to_thread(_resolve)
+    if require_write and "write" not in scopes:
+        raise DomainError(
+            ErrorCode.PAT_SCOPE_FORBIDDEN,
+            "This personal access token lacks the write scope.",
+            403,
+        )
+    _AGENT_TOKEN.set(token_name)
+    return user_id
 
 
-async def _authed(fn) -> Any:
+async def _authed(fn, *, require_write: bool) -> Any:
     """Run a sync DB callback receiving (conn, user_id) off the event loop."""
-    user_id = await _user_id()
+    user_id = await _user_id(require_write=require_write)
 
     def _run() -> Any:
         with connection() as conn:
@@ -153,7 +244,8 @@ async def pa_list_items(
             limit,
             search,
             deleted,
-        )
+        ),
+        require_write=False,
     )
 
 
@@ -175,7 +267,7 @@ async def pa_set_item_relations(
         repo.replace_item_relations(uid, item_uuid, predecessors, successors)
         return repo.get_item(uid, item_uuid)
 
-    return await _authed(_run)
+    return await _authed(_run, require_write=True)
 
 
 @mcp.tool()
@@ -231,13 +323,16 @@ async def pa_get_project_context(
         unique_relations = {(str(r["predecessor_item_id"]), str(r["successor_item_id"])): r for r in relations}
         return {"project": project, "items": items, "relations": list(unique_relations.values())}
 
-    return await _authed(_run)
+    return await _authed(_run, require_write=False)
 
 
 @mcp.tool()
 async def pa_get_item(item_id: str) -> dict | None:
     """Get a single item by id (includes tags, people, project name)."""
-    return await _authed(lambda conn, uid: ItemsRepository(conn).get_item(uid, UUID(item_id)))
+    return await _authed(
+        lambda conn, uid: ItemsRepository(conn).get_item(uid, UUID(item_id)),
+        require_write=False,
+    )
 
 
 @mcp.tool()
@@ -279,6 +374,7 @@ async def pa_create_item(
     """Create an item (idempotent via client_request_id). scope: work|personal."""
     fields = {
         "title": title,
+        "notes": notes,
         "scope": ItemScope(scope),
         "status": ItemStatus(status) if status else None,
         "priority": priority,
@@ -313,7 +409,13 @@ async def pa_create_item(
     }
     request = ItemCreate(**{k: v for k, v in fields.items() if v is not None})
     item, _created = await _authed(
-        lambda conn, uid: ItemService(ItemsRepository(conn), ActivityRepository(conn)).create(uid, request)
+        lambda conn, uid: ItemService(ItemsRepository(conn), ActivityRepository(conn)).create(
+            uid,
+            request,
+            created_by_actor=_AGENT_ACTOR,
+            source_context=_agent_source(),
+        ),
+        require_write=True,
     )
     return item
 
@@ -397,9 +499,11 @@ async def pa_update_item(
         current = repo.get_item(uid, item_id_uuid)
         if not current:
             return None
-        return ItemService(repo, ActivityRepository(conn)).patch(uid, item_id_uuid, current, version, request)
+        return ItemService(repo, ActivityRepository(conn)).patch(
+            uid, item_id_uuid, current, version, request, updated_by_actor=_AGENT_ACTOR
+        )
 
-    return await _authed(_run)
+    return await _authed(_run, require_write=True)
 
 
 @mcp.tool()
@@ -414,10 +518,15 @@ async def pa_complete_item(item_id: str, if_match: str) -> dict | None:
         if not current:
             return None
         return ItemService(repo, ActivityRepository(conn)).patch(
-            uid, item_id_uuid, current, version, ItemPatch(status=ItemStatus.DONE)
+            uid,
+            item_id_uuid,
+            current,
+            version,
+            ItemPatch(status=ItemStatus.DONE),
+            updated_by_actor=_AGENT_ACTOR,
         )
 
-    return await _authed(_run)
+    return await _authed(_run, require_write=True)
 
 
 # ---------------------------------------------------------------- agent proposals
@@ -450,7 +559,10 @@ async def pa_propose_item(
         target_item_id=UUID(target_item_id) if target_item_id else None,
         expires_at=_parse_datetime(expires_at),
     )
-    return await _authed(lambda conn, uid: _proposal_service(conn).propose(uid, request))
+    return await _authed(
+        lambda conn, uid: _proposal_service(conn).propose(uid, request),
+        require_write=True,
+    )
 
 
 @mcp.tool()
@@ -467,14 +579,19 @@ async def pa_approve_proposal(
         proposal, item = _proposal_service(conn).approve(uid, UUID(proposal_id), request)
         return {"proposal": proposal, "item": item}
 
-    return await _authed(_run)
+    return await _authed(_run, require_write=True)
 
 
 @mcp.tool()
 async def pa_reject_proposal(proposal_id: str, decision_note: str | None = None, ignore: bool = False) -> dict | None:
     """Reject a proposal; pass ignore=true to mark it ignored instead of rejected."""
     state = AgentProposalState.IGNORED if ignore else AgentProposalState.REJECTED
-    return await _authed(lambda conn, uid: _proposal_service(conn).reject(uid, UUID(proposal_id), state, decision_note))
+    return await _authed(
+        lambda conn, uid: _proposal_service(conn).reject(
+            uid, UUID(proposal_id), state, decision_note
+        ),
+        require_write=True,
+    )
 
 
 @mcp.tool()
@@ -527,7 +644,7 @@ async def pa_parse_meeting_input(
             "tmeet_lookup": lookup,
             "proposed_item": parsed.proposed_item,
         }
-    return await _authed(_run)
+    return await _authed(_run, require_write=False)
 
 
 @mcp.tool()
@@ -546,7 +663,7 @@ async def pa_resolve_offline_location(
             if result.get("candidates"):
                 return result
         return client.resolve(query, city=city, adcode=adcode, limit=limit)
-    return await _authed(_run)
+    return await _authed(_run, require_write=False)
 
 
 @mcp.tool()
@@ -562,7 +679,8 @@ async def pa_assess_schedule_feasibility(
         lambda conn, uid: assess_schedule_feasibility(
             ItemsRepository(conn), uid, [UUID(value) for value in item_ids], AMapClient(settings_for_user(conn, uid, get_settings())),
             travel_mode=travel_mode, buffer_minutes=buffer_minutes,
-        )
+        ),
+        require_write=False,
     )
 
 
@@ -581,7 +699,8 @@ async def pa_get_executive_briefing(
             target_date=target_date,
             window_days=window_days,
             include_done=include_done,
-        )
+        ),
+        require_write=False,
     )
 
 
@@ -608,7 +727,8 @@ async def pa_find_free_slots(
             preferred_end=preferred_end,
             buffer_minutes=buffer_minutes,
             limit=limit,
-        )
+        ),
+        require_write=False,
     )
 
 
@@ -617,13 +737,21 @@ async def pa_find_free_slots(
 @mcp.tool()
 async def pa_list_people(include_inactive: bool = True) -> list[dict]:
     """List the people directory."""
-    return await _authed(lambda conn, uid: PeopleRepository(conn).list_people(uid, include_inactive))
+    return await _authed(
+        lambda conn, uid: PeopleRepository(conn).list_people(uid, include_inactive),
+        require_write=False,
+    )
 
 
 @mcp.tool()
 async def pa_create_person(name: str, identity: str | None = None, note: str | None = None) -> dict:
     """Create a person in the directory."""
-    return await _authed(lambda conn, uid: PeopleService(PeopleRepository(conn)).create(uid, name, identity, note))
+    return await _authed(
+        lambda conn, uid: PeopleService(PeopleRepository(conn)).create(
+            uid, name, identity, note
+        ),
+        require_write=True,
+    )
 
 
 @mcp.tool()
@@ -637,7 +765,12 @@ async def pa_update_person(
     """Update a person (only provided fields change)."""
     patch = {k: v for k, v in {"name": name, "identity": identity, "note": note, "active": active}.items() if v is not None}
     person_id_uuid = UUID(person_id)
-    return await _authed(lambda conn, uid: PeopleService(PeopleRepository(conn)).patch(uid, person_id_uuid, patch))
+    return await _authed(
+        lambda conn, uid: PeopleService(PeopleRepository(conn)).patch(
+            uid, person_id_uuid, patch
+        ),
+        require_write=True,
+    )
 
 
 # ---------------------------------------------------------------- reminders
@@ -665,19 +798,25 @@ async def pa_set_reminder(
             return None
         return ReminderService(RemindersRepository(conn), items, get_settings()).upsert(uid, item_id_uuid, request)
 
-    return await _authed(_run)
+    return await _authed(_run, require_write=True)
 
 
 @mcp.tool()
 async def pa_get_reminder(item_id: str) -> dict | None:
     """Get the active reminder for an item."""
-    return await _authed(lambda conn, uid: RemindersRepository(conn).get_active_for_item(uid, UUID(item_id)))
+    return await _authed(
+        lambda conn, uid: RemindersRepository(conn).get_active_for_item(uid, UUID(item_id)),
+        require_write=False,
+    )
 
 
 @mcp.tool()
 async def pa_delete_reminder(item_id: str) -> None:
     """Cancel the item's reminder."""
-    await _authed(lambda conn, uid: RemindersRepository(conn).deactivate_for_item(uid, UUID(item_id)))
+    await _authed(
+        lambda conn, uid: RemindersRepository(conn).deactivate_for_item(uid, UUID(item_id)),
+        require_write=True,
+    )
     return None
 
 
@@ -690,14 +829,20 @@ async def pa_list_deliveries(
 ) -> list[dict]:
     """List reminder deliveries; unseen=true filters to delivered, unacknowledged."""
     return await _authed(
-        lambda conn, uid: RemindersRepository(conn).list_deliveries(uid, limit, channel, status, unseen)
+        lambda conn, uid: RemindersRepository(conn).list_deliveries(
+            uid, limit, channel, status, unseen
+        ),
+        require_write=False,
     )
 
 
 @mcp.tool()
 async def pa_ack_delivery(delivery_id: str) -> dict | None:
     """Acknowledge a delivered reminder (mark as handled)."""
-    return await _authed(lambda conn, uid: RemindersRepository(conn).acknowledge(uid, UUID(delivery_id)))
+    return await _authed(
+        lambda conn, uid: RemindersRepository(conn).acknowledge(uid, UUID(delivery_id)),
+        require_write=True,
+    )
 
 
 @mcp.tool()
@@ -705,19 +850,25 @@ async def pa_snooze_delivery(delivery_id: str, snooze_until: str) -> dict | None
     """Snooze a delivered reminder until the given ISO datetime."""
     until = _parse_datetime(snooze_until)
     assert until is not None
-    return await _authed(lambda conn, uid: RemindersRepository(conn).snooze(uid, UUID(delivery_id), until))
+    return await _authed(
+        lambda conn, uid: RemindersRepository(conn).snooze(uid, UUID(delivery_id), until),
+        require_write=True,
+    )
 
 
 @mcp.tool()
 async def pa_retry_delivery(delivery_id: str) -> dict | None:
     """Retry a dead delivery."""
-    return await _authed(lambda conn, uid: RemindersRepository(conn).retry_dead(uid, UUID(delivery_id)))
+    return await _authed(
+        lambda conn, uid: RemindersRepository(conn).retry_dead(uid, UUID(delivery_id)),
+        require_write=True,
+    )
 
 
 @mcp.tool()
 async def pa_get_channels() -> dict:
     """Which external notification channels are configured."""
-    await _user_id()
+    await _user_id(require_write=False)
     cfg = get_settings()
     return {"feishu_configured": bool(cfg.feishu_webhook_url), "ntfy_configured": bool(cfg.ntfy_topic_url)}
 
@@ -725,7 +876,7 @@ async def pa_get_channels() -> dict:
 @mcp.tool()
 async def pa_reminder_health() -> dict:
     """Reminder worker health: lag, pending/retry/dead counts."""
-    await _user_id()
+    await _user_id(require_write=False)
 
     def _run() -> dict:
         with connection() as conn:
@@ -753,7 +904,7 @@ async def pa_list_calendar(
     def _run(conn, uid):
         return CalendarQueryService(ItemsRepository(conn), ProjectsRepository(conn)).events(uid, start, end, selected)
 
-    return await _authed(_run)
+    return await _authed(_run, require_write=False)
 
 
 @mcp.tool()
@@ -813,7 +964,9 @@ async def pa_create_calendar_event(
 
     def _run(conn, uid):
         items = ItemsRepository(conn)
-        item, _created = ItemService(items, ActivityRepository(conn)).create(uid, request)
+        item, _created = ItemService(items, ActivityRepository(conn)).create(
+            uid, request, created_by_actor=_AGENT_ACTOR, source_context=_agent_source()
+        )
         if reminder_timing:
             ReminderService(RemindersRepository(conn), items, get_settings()).upsert(
                 uid,
@@ -827,14 +980,17 @@ async def pa_create_calendar_event(
             )
         return item
 
-    return await _authed(_run)
+    return await _authed(_run, require_write=True)
 
 
 # ---------------------------------------------------------------- resources
 
 @mcp.resource("pa://items/{item_id}")
 async def item_resource(item_id: str) -> str:
-    row = await _authed(lambda conn, uid: ItemsRepository(conn).get_item(uid, UUID(item_id)))
+    row = await _authed(
+        lambda conn, uid: ItemsRepository(conn).get_item(uid, UUID(item_id)),
+        require_write=False,
+    )
     if not row:
         return "not found"
     return json.dumps(row, ensure_ascii=False, default=str)
@@ -842,7 +998,10 @@ async def item_resource(item_id: str) -> str:
 
 @mcp.resource("pa://people/{person_id}")
 async def people_resource(person_id: str) -> str:
-    row = await _authed(lambda conn, uid: PeopleRepository(conn).get(uid, UUID(person_id)))
+    row = await _authed(
+        lambda conn, uid: PeopleRepository(conn).get(uid, UUID(person_id)),
+        require_write=False,
+    )
     if not row:
         return "not found"
     return json.dumps(row, ensure_ascii=False, default=str)
@@ -856,7 +1015,7 @@ async def today_reminders_resource() -> str:
         rows = RemindersRepository(conn).list_deliveries(uid, limit=500)
         return [r for r in rows if r["scheduled_for"].date() == today and r["status"] != "cancelled"]
 
-    rows = await _authed(_run)
+    rows = await _authed(_run, require_write=False)
     return json.dumps(rows, ensure_ascii=False, default=str)
 
 
