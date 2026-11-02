@@ -19,6 +19,8 @@ Start from `infra/.env.example` and store the real runtime file outside git.
 - `PERSONAL_AFFAIRS_BOOTSTRAP_USERNAME=<initial operator>`
 - `PERSONAL_AFFAIRS_BOOTSTRAP_PASSWORD=<runtime secret>`
 - `PERSONAL_AFFAIRS_ALLOWED_HOSTS=<public hostnames>`
+- `PERSONAL_AFFAIRS_MCP_ISSUER_URL=https://<public-host>`
+- `PERSONAL_AFFAIRS_MCP_RESOURCE_URL=https://<public-host>/mcp`
 
 The API fails to start in production if `PERSONAL_AFFAIRS_ALLOWED_HOSTS` is empty. Use exact hostnames and only add wildcard suffixes when the reverse-proxy boundary is understood.
 
@@ -47,6 +49,43 @@ For internet-facing deployments, add edge limits for at least:
 The bundled Nginx examples define conservative `limit_req` zones for login, token creation, and webhook creation paths. Tune these values at the outermost public edge if another proxy or tunnel sits in front of Nginx.
 
 Cookie-authenticated write endpoints require a CSRF token. SameSite cookies and edge checks are defense in depth; do not disable the token requirement for browser clients.
+
+## Cloudflare Tunnel and Remote MCP
+
+Point a Cloudflare Tunnel public hostname at `http://127.0.0.1:18110`. The web,
+REST API, and MCP endpoint intentionally share the same origin:
+
+- Web: `https://<public-host>/`
+- REST API: `https://<public-host>/api/...`
+- MCP: `https://<public-host>/mcp`
+
+The MCP endpoint is protected by a per-user personal access token. Create a
+token from the Settings page with the required `read` and, for write tools,
+`write` scopes. Configure the remote agent with:
+
+```json
+{
+  "mcpServers": {
+    "eventflowos": {
+      "url": "https://<public-host>/mcp",
+      "headers": {
+        "Authorization": "Bearer <personal-access-token>"
+      }
+    }
+  }
+}
+```
+
+If Cloudflare Access is enabled, do not put an interactive email-login policy
+in front of the MCP endpoint. Use a separate MCP hostname with a service-token
+policy, or ensure the WorkBuddy connector can send the required
+`CF-Access-Client-Id` and `CF-Access-Client-Secret` headers in addition to the
+EventFlowOS Bearer token.
+
+For the first public deployment, verify both an unauthenticated `401` response
+and an authenticated MCP `initialize` request before adding the endpoint to the
+agent. Keep the MCP listener on loopback; only Nginx and the tunnel should
+reach it.
 
 ## Outbound Webhooks
 

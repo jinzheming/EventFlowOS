@@ -38,6 +38,7 @@ The EventFlowOS name and logo are not licensed under Apache-2.0. Forks and produ
 - `openapi/` - OpenAPI contract snapshot.
 - `docs/` - EventFlowOS design, deployment, and implementation notes.
 
+See `docs/development-handoff.md` for the developer handoff: process topology, local setup, module map, request paths, data and migration rules, auth model, MCP layer, deploy runbook, and known issues.
 See `docs/deployment.md` for the production boundary, security checklist, and backup/restore runbook.
 See `docs/open-source-readiness.md` for the current release-candidate readiness notes and residual risks.
 See `docs/development-status.md` for a categorized snapshot of completed modules, remaining work, and suggested GitHub metadata.
