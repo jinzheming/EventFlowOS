@@ -28,7 +28,7 @@
 | 进程 | 启动命令 | 监听 | 职责 |
 |---|---|---|---|
 | api | `personal-affairs-api`（uvicorn） | `127.0.0.1:18098` | REST `/api/v1/*`，会话与 PAT 认证，所有业务写操作 |
-| mcp | `personal-affairs-mcp` | `127.0.0.1:18099` | MCP Streamable HTTP `/mcp`，30 个 `pa_*` 工具 |
+| mcp | `personal-affairs-mcp` | `127.0.0.1:18099` | MCP Streamable HTTP `/mcp`，32 个 `pa_*` 工具 |
 | web | nginx（`personal-affairs-web` 镜像） | `0.0.0.0:18110` | 托管前端静态产物；反代 `/api/` → 18098、`/mcp` → 18099 |
 | worker | `personal-affairs-worker` | 无端口 | 轮询 `reminders`，到点投递通知，写 `reminder_deliveries` |
 | webhook | `personal-affairs-webhook-worker` | 无端口 | 轮询 `event_outbox`，向外部订阅者投递事件 |
@@ -159,7 +159,7 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18110/
 | `storage/database.py` | — | `ConnectionPool` 单例 + `connection()` 上下文管理器 | 低 |
 | `storage/migrations.py` | — | 迁移执行器（全量重放，见第 5 节） | 低 |
 | `workers/` | 2 | reminder / webhook 两个轮询循环 | 中 |
-| `mcp/server.py` | 979 行 | MCP 服务 + 30 个工具 + PAT 校验 + 身份归属 | **高** |
+| `mcp/server.py` | — | MCP 服务 + 32 个工具 + PAT 校验 + 身份归属 | **高** |
 | `notifications/adapters.py` | — | 通知渠道适配（`in_app` / `feishu` / `ntfy`） | 低 |
 
 ### 3.2 前端（`frontend/src/`）
@@ -405,16 +405,20 @@ stdio 模式下改用 `PERSONAL_AFFAIRS_MCP_TOKEN` 环境变量鉴权。
 未认证请求返回 `401` + `WWW-Authenticate: Bearer error="invalid_token"` +
 `resource_metadata`，并暴露 `/.well-known/oauth-protected-resource/mcp`。这是 MCP 规范要求，不要动。
 
-### 7.2 30 个工具
+Codex CLI 可用 `codex mcp add eventflowos --url https://<host>/mcp --bearer-token-env-var PERSONAL_AFFAIRS_MCP_TOKEN` 登记连接。PAT 只通过启动 Codex 时的环境变量提供，不写入 MCP 配置；未设置该变量时连接不能完成 Bearer 认证。
+
+### 7.2 32 个工具
 
 | 类别 | 工具 |
 |---|---|
 | 事项（7） | `pa_list_items`、`pa_get_item`、`pa_create_item`、`pa_update_item`、`pa_complete_item`、`pa_set_item_relations`、`pa_get_project_context` |
 | 建议流（3） | `pa_propose_item`、`pa_approve_proposal`、`pa_reject_proposal` |
 | 提醒（8） | `pa_set_reminder`、`pa_get_reminder`、`pa_delete_reminder`、`pa_list_deliveries`、`pa_ack_delivery`、`pa_snooze_delivery`、`pa_retry_delivery`、`pa_reminder_health` |
-| 调度（4） | `pa_assess_schedule_feasibility`、`pa_find_free_slots`、`pa_list_calendar`、`pa_create_calendar_event` |
+| 调度（6） | `pa_assess_schedule_feasibility`、`pa_prepare_event`、`pa_find_free_slots`、`pa_get_schedule_summary`、`pa_list_calendar`、`pa_create_calendar_event` |
 | 人员（3） | `pa_list_people`、`pa_create_person`、`pa_update_person` |
 | 解析与其他（5） | `pa_parse_meeting_invite`、`pa_parse_meeting_input`、`pa_resolve_offline_location`、`pa_get_executive_briefing`、`pa_get_channels` |
+
+`pa_prepare_event` 用于把 Agent 从聊天记录提取的结构化候选事件做地点解析、重叠检查和公交/驾车路线预检；`pa_find_free_slots` 支持线上/线下和地点；`pa_get_schedule_summary` 提供日期范围内的基础统计。交通预计时间按路线 ETA 的 1.5 倍预留。`pa_create_calendar_event` 会在写入前重新预检，遇到重叠、两种路线均不可行或地点歧义时不会静默创建；紧张或路线未知需要 `confirm_schedule_risks=true`。
 
 **没有删除事项的工具。** 清理测试数据只能 `pa_update_item(status="cancelled")`。
 
@@ -603,7 +607,8 @@ npm audit --prefix frontend --audit-level=moderate
 
 | 测试 | 覆盖 |
 |---|---|
-| `test_mcp_contract.py` | MCP 工具契约：30 个工具全量分类 + 逐个校验 `require_write` 字面值 + 只读令牌被拒 + `notes` 透传 + agent 身份 |
+| `test_mcp_contract.py` | MCP 工具契约：32 个工具全量分类 + 逐个校验 `require_write` 字面值 + 只读令牌被拒 + `notes` 透传 + agent 身份 |
+| `test_event_planning_service.py` | 邀约预检、全天冲突、交通 1.5 倍缓冲和会议空档 |
 | `test_migrations.py` | 迁移门控：记录并跳过、补齐历史缺口 |
 | `test_webhook_contract.py` | 出站 webhook 契约 |
 | `test_api_smoke.py` | API 冒烟 |
@@ -833,4 +838,3 @@ PERSONAL_AFFAIRS_WEB_IMAGE=personal-affairs-web:20261102043944 \
 
 注意：`WEB_IMAGE` 必须传当前在用的 tag（`docker ps` 里看 `personal-affairs-web-1`），
 写成 `latest` 会把 nginx 换成不存在的版本。
-
