@@ -16,6 +16,7 @@ from contextvars import ContextVar
 from datetime import UTC, date, datetime
 from typing import Any
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.provider import AccessToken
@@ -31,13 +32,17 @@ from personal_affairs.api.schemas import (
     ReminderPut,
 )
 from personal_affairs.application.agent_context_service import (
-    find_free_slots as calculate_free_slots,
-)
-from personal_affairs.application.agent_context_service import (
     get_executive_briefing as calculate_executive_briefing,
 )
 from personal_affairs.application.agent_proposal_service import AgentProposalService
 from personal_affairs.application.calendar_query_service import CalendarQueryService
+from personal_affairs.application.event_planning_service import (
+    find_meeting_slots,
+    get_schedule_summary,
+    prepare_event,
+    user_timezone,
+)
+from personal_affairs.application.idempotency import create_request_hash
 from personal_affairs.application.integration_settings import settings_for_user
 from personal_affairs.application.item_service import ItemService
 from personal_affairs.application.location_service import AMapClient
@@ -200,6 +205,22 @@ def _parse_datetime(value: str | None) -> datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     return parsed
+
+
+def _parse_calendar_datetime(value: str | None) -> datetime | None:
+    if value is None:
+        return None
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _apply_user_timezone(request: ItemCreate, timezone: str) -> ItemCreate:
+    tz = ZoneInfo(timezone)
+    updates = {
+        field: value.replace(tzinfo=tz)
+        for field in ("start_at", "due_at")
+        if (value := getattr(request, field)) is not None and value.tzinfo is None
+    }
+    return request.model_copy(update=updates)
 
 
 def _parse_json_object(value: str | None, field_name: str) -> dict[str, Any]:
@@ -685,6 +706,49 @@ async def pa_assess_schedule_feasibility(
 
 
 @mcp.tool()
+async def pa_prepare_event(
+    title: str,
+    start_at: str | None = None,
+    due_at: str | None = None,
+    all_day: bool = False,
+    start_date: str | None = None,
+    due_date: str | None = None,
+    event_format: str | None = None,
+    event_location: str | None = None,
+    event_url: str | None = None,
+    location_name: str | None = None,
+    location_address: str | None = None,
+    location_latitude: float | None = None,
+    location_longitude: float | None = None,
+) -> dict:
+    """Preflight an event extracted from a chat invite: resolve venue, check overlaps, compare bus/driving with a 1.5x ETA allowance, using the saved time zone."""
+    candidate = {
+        "title": title,
+        "start_at": start_at,
+        "due_at": due_at,
+        "all_day": all_day,
+        "start_date": start_date,
+        "due_date": due_date,
+        "event_format": event_format,
+        "event_location": event_location,
+        "event_url": event_url,
+        "location_name": location_name,
+        "location_address": location_address,
+        "location_latitude": location_latitude,
+        "location_longitude": location_longitude,
+    }
+
+    def _run(conn, uid):
+        cfg = get_settings()
+        timezone = user_timezone(conn, uid, cfg.default_timezone)
+        return prepare_event(
+            conn, uid, candidate, AMapClient(settings_for_user(conn, uid, cfg)), timezone
+        )
+
+    return await _authed(_run, require_write=False)
+
+
+@mcp.tool()
 async def pa_get_executive_briefing(
     target_date: str | None = None,
     window_days: int = 1,
@@ -713,13 +777,19 @@ async def pa_find_free_slots(
     preferred_end: str = "18:00",
     buffer_minutes: int = 0,
     limit: int = 20,
+    event_format: str | None = None,
+    location_name: str | None = None,
+    location_address: str | None = None,
+    location_latitude: float | None = None,
+    location_longitude: float | None = None,
 ) -> dict:
-    """Read-only free-slot finder based on existing items and milestones."""
+    """Find meeting times; for offline meetings include a venue to check nearby bus/driving travel with a 1.5x ETA allowance."""
+    if event_format not in {None, "online", "offline"}:
+        raise ValueError("event_format must be online or offline")
     return await _authed(
-        lambda conn, uid: calculate_free_slots(
+        lambda conn, uid: _find_meeting_slots(
             conn,
             uid,
-            get_settings(),
             duration_minutes=duration_minutes,
             start_date=start_date,
             end_date=end_date,
@@ -727,9 +797,69 @@ async def pa_find_free_slots(
             preferred_end=preferred_end,
             buffer_minutes=buffer_minutes,
             limit=limit,
+            event_format=event_format,
+            location_name=location_name,
+            location_address=location_address,
+            location_latitude=location_latitude,
+            location_longitude=location_longitude,
         ),
         require_write=False,
     )
+
+
+def _find_meeting_slots(
+    conn,
+    uid,
+    *,
+    duration_minutes: int,
+    start_date: str,
+    end_date: str,
+    preferred_start: str,
+    preferred_end: str,
+    buffer_minutes: int,
+    limit: int,
+    event_format: str | None,
+    location_name: str | None,
+    location_address: str | None,
+    location_latitude: float | None,
+    location_longitude: float | None,
+) -> dict:
+    cfg = get_settings()
+    timezone = user_timezone(conn, uid, cfg.default_timezone)
+    return find_meeting_slots(
+        conn,
+        uid,
+        AMapClient(settings_for_user(conn, uid, cfg)),
+        timezone,
+        duration_minutes=duration_minutes,
+        start_date=start_date,
+        end_date=end_date,
+        preferred_start=preferred_start,
+        preferred_end=preferred_end,
+        buffer_minutes=buffer_minutes,
+        limit=limit,
+        event_format=event_format,
+        location_name=location_name,
+        location_address=location_address,
+        location_latitude=location_latitude,
+        location_longitude=location_longitude,
+    )
+
+
+@mcp.tool()
+async def pa_get_schedule_summary(start_date: str, end_date: str) -> dict:
+    """Summarize calendar workload, online/offline event counts, daily minutes, and conflicts for a date range."""
+    def _run(conn, uid):
+        cfg = get_settings()
+        return get_schedule_summary(
+            conn,
+            uid,
+            user_timezone(conn, uid, cfg.default_timezone),
+            start_date,
+            end_date,
+        )
+
+    return await _authed(_run, require_write=False)
 
 
 # ---------------------------------------------------------------- people
@@ -931,8 +1061,9 @@ async def pa_create_calendar_event(
     reminder_timing: str | None = None,
     reminder_offset_minutes: int = 10,
     client_request_id: str | None = None,
+    confirm_schedule_risks: bool = False,
 ) -> dict:
-    """Create a calendar event (timed or all-day work/personal item).
+    """Create after rechecking overlaps and travel; naive times use the saved time zone. Tight/unknown routes need explicit confirmation; overlaps and impossible routes are blocked.
 
     Timed events: provide start_at/due_at as ISO datetimes. All-day events:
     all_day=true with due_date/start_date (ISO dates). Optionally attach a
@@ -942,8 +1073,8 @@ async def pa_create_calendar_event(
         "title": title,
         "scope": ItemScope(scope),
         "all_day": all_day,
-        "start_at": _parse_datetime(start_at),
-        "due_at": _parse_datetime(due_at),
+        "start_at": _parse_calendar_datetime(start_at),
+        "due_at": _parse_calendar_datetime(due_at),
         "start_date": date.fromisoformat(start_date) if start_date else None,
         "due_date": date.fromisoformat(due_date) if due_date else None,
         "notes": notes,
@@ -964,9 +1095,46 @@ async def pa_create_calendar_event(
 
     def _run(conn, uid):
         items = ItemsRepository(conn)
-        item, _created = ItemService(items, ActivityRepository(conn)).create(
-            uid, request, created_by_actor=_AGENT_ACTOR, source_context=_agent_source()
-        )
+        payload = request.model_dump(exclude_none=True)
+        request_id = payload.pop("client_request_id", None)
+        if request_id:
+            replay_state, snapshot = items.replay_create_request(
+                uid,
+                "item",
+                request_id,
+                create_request_hash(payload),
+            )
+            if replay_state == "replay" and snapshot:
+                item = snapshot
+                assessment = None
+            elif replay_state == "conflict":
+                item, _created = ItemService(
+                    items, ActivityRepository(conn)
+                ).create(
+                    uid,
+                    request,
+                    created_by_actor=_AGENT_ACTOR,
+                    source_context=_agent_source(),
+                )
+                assessment = None
+            else:
+                item, assessment = _create_checked_calendar_event(
+                    conn, uid, items, request, confirm_schedule_risks
+                )
+        else:
+            item, assessment = _create_checked_calendar_event(
+                conn, uid, items, request, confirm_schedule_risks
+            )
+        if item is None:
+            if assessment is None:
+                raise RuntimeError("A blocked calendar event requires a schedule assessment.")
+            status = assessment["assessment"]["status"]
+            return {
+                "created": False,
+                "blocked": status in {"conflict", "travel_blocked", "location_ambiguous"},
+                "requires_confirmation": status in {"travel_warning", "travel_unknown"},
+                **assessment,
+            }
         if reminder_timing:
             ReminderService(RemindersRepository(conn), items, get_settings()).upsert(
                 uid,
@@ -974,13 +1142,65 @@ async def pa_create_calendar_event(
                 ReminderPut(
                     timing=ReminderTiming(reminder_timing),
                     offset_minutes=reminder_offset_minutes,
-                    timezone="Asia/Shanghai",
+                    timezone=user_timezone(conn, uid, get_settings().default_timezone),
                     external_enabled=False,
                 ),
             )
+        if assessment is not None:
+            item = {**item, "schedule_assessment": assessment}
         return item
 
     return await _authed(_run, require_write=True)
+
+
+def _create_checked_calendar_event(conn, uid, items, request, confirm_schedule_risks):
+    cfg = get_settings()
+    timezone = user_timezone(conn, uid, cfg.default_timezone)
+    idempotency_payload = request.model_dump(exclude_none=True)
+    idempotency_payload.pop("client_request_id", None)
+    request = _apply_user_timezone(request, timezone)
+    prepared = prepare_event(
+        conn,
+        uid,
+        request.model_dump(exclude_none=True),
+        AMapClient(settings_for_user(conn, uid, cfg)),
+        timezone,
+    )
+    assessment = prepared["assessment"]
+    hard_block = assessment["status"] in {
+        "conflict",
+        "travel_blocked",
+        "location_ambiguous",
+    }
+    needs_confirmation = assessment["status"] in {"travel_warning", "travel_unknown"}
+    if hard_block or (needs_confirmation and not confirm_schedule_risks):
+        return None, prepared
+
+    event = prepared["event"]
+    location_fields = {
+        key: event.get(key)
+        for key in (
+            "location_name",
+            "location_address",
+            "location_provider",
+            "location_poi_id",
+            "location_latitude",
+            "location_longitude",
+            "location_confidence",
+        )
+        if event.get(key) is not None
+    }
+    checked_request = request.model_copy(update=location_fields)
+    item, _created = ItemService(
+        items, ActivityRepository(conn)
+    ).create(
+        uid,
+        checked_request,
+        created_by_actor=_AGENT_ACTOR,
+        source_context=_agent_source(),
+        idempotency_payload=idempotency_payload,
+    )
+    return item, prepared
 
 
 # ---------------------------------------------------------------- resources

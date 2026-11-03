@@ -7,11 +7,15 @@ import ast
 import asyncio
 import inspect
 import textwrap
+from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import pytest
 
+from personal_affairs.domain.enums import ItemScope
 from personal_affairs.domain.errors import DomainError, ErrorCode
 from personal_affairs.storage.repositories.tokens import PAT_PREFIX, generate_pat
 from personal_affairs.storage.repositories.users import hash_token
@@ -55,8 +59,10 @@ READ_TOOLS = frozenset(
         "pa_list_items",
         "pa_list_people",
         "pa_parse_meeting_input",
+        "pa_prepare_event",
         "pa_reminder_health",
         "pa_resolve_offline_location",
+        "pa_get_schedule_summary",
     }
 )
 # Pure functions: no token, no database.
@@ -121,7 +127,7 @@ def test_mcp_tool_surface_is_fully_classified() -> None:
     assert names - classified == set(), "unclassified tools on the server"
     assert WRITE_TOOLS.isdisjoint(READ_TOOLS | PURE_TOOLS)
     assert len(WRITE_TOOLS) == 15
-    assert len(READ_TOOLS) == 14
+    assert len(READ_TOOLS) == 16
 
 
 @pytest.mark.parametrize("name", sorted(WRITE_TOOLS | READ_TOOLS))
@@ -151,6 +157,25 @@ def test_mcp_parse_meeting_invite_contract() -> None:
     assert parsed["title"] == "项目例会"
     assert parsed["meeting_id"] == "987654321"
     assert parsed["proposed_item"]["scope"] == "work"
+
+
+def test_calendar_event_naive_times_use_saved_user_timezone() -> None:
+    from personal_affairs.api.schemas import ItemCreate
+    from personal_affairs.mcp.server import _apply_user_timezone, _parse_calendar_datetime
+
+    request = ItemCreate(
+        title="会议",
+        scope=ItemScope.PERSONAL,
+        all_day=False,
+        start_at=_parse_calendar_datetime("2026-11-03T10:00:00"),
+        due_at=_parse_calendar_datetime("2026-11-03T11:00:00"),
+    )
+
+    localized = _apply_user_timezone(request, "Asia/Shanghai")
+
+    assert localized.start_at is not None
+    assert localized.start_at.tzinfo == ZoneInfo("Asia/Shanghai")
+    assert localized.start_at.isoformat() == "2026-11-03T10:00:00+08:00"
 
 
 def test_mcp_create_item_forwards_notes_and_agent_identity(monkeypatch) -> None:
@@ -238,6 +263,62 @@ def test_mcp_proposal_write_contracts(monkeypatch) -> None:
     assert rejected is not None and rejected["state"] == "rejected"
     assert [name for name, _ in calls] == ["propose", "approve", "reject"]
     assert required_write_scopes == [True, True, True]
+
+
+@pytest.mark.parametrize(
+    ("status", "confirm_risks", "created"),
+    [
+        ("travel_warning", False, False),
+        ("travel_warning", True, True),
+        ("travel_unknown", False, False),
+        ("travel_unknown", True, True),
+        ("travel_blocked", True, False),
+        ("conflict", True, False),
+        ("location_ambiguous", True, False),
+    ],
+)
+def test_calendar_event_write_requires_confirmation_or_blocks_hard_risks(
+    monkeypatch, status: str, confirm_risks: bool, created: bool
+) -> None:
+    from personal_affairs.mcp import server
+
+    request = server.ItemCreate(
+        title="客户会议",
+        scope="personal",
+        all_day=False,
+        start_at=datetime(2026, 11, 3, 10, 0, tzinfo=UTC),
+        due_at=datetime(2026, 11, 3, 11, 0, tzinfo=UTC),
+    )
+    prepared = {
+        "event": request.model_dump(exclude_none=True),
+        "location_resolution": {"status": "not_required"},
+        "assessment": {"status": status, "recommendation": "review"},
+    }
+    calls: list[str] = []
+
+    class FakeItemService:
+        def __init__(self, *args):
+            pass
+
+        def create(self, *args, **kwargs):
+            calls.append("created")
+            return {"id": str(uuid4()), "title": "客户会议"}, True
+
+    monkeypatch.setattr(server, "get_settings", lambda: SimpleNamespace(default_timezone="UTC"))
+    monkeypatch.setattr(server, "user_timezone", lambda *args: "UTC")
+    monkeypatch.setattr(server, "settings_for_user", lambda *args: object())
+    monkeypatch.setattr(server, "AMapClient", lambda cfg: object())
+    monkeypatch.setattr(server, "prepare_event", lambda *args: prepared)
+    monkeypatch.setattr(server, "ItemService", FakeItemService)
+    monkeypatch.setattr(server, "ActivityRepository", lambda conn: object())
+
+    item, assessment = server._create_checked_calendar_event(
+        object(), uuid4(), object(), request, confirm_risks
+    )
+
+    assert (item is not None) is created
+    assert ("created" in calls) is created
+    assert assessment is prepared
 
 
 def test_mcp_pat_write_scope_enforced(monkeypatch) -> None:

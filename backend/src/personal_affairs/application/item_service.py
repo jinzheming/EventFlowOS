@@ -89,10 +89,13 @@ class ItemService:
         created_by_actor: str = "human",
         source_context: dict[str, Any] | None = None,
         execution_output: dict[str, Any] | None = None,
+        idempotency_payload: dict[str, Any] | None = None,
     ) -> tuple[dict, bool]:
         payload = request.model_dump(exclude_none=True)
         client_request_id = payload.pop("client_request_id", None)
-        request_hash = create_request_hash(payload)  # 包含 tag_ids 和 people
+        request_hash = create_request_hash(
+            payload if idempotency_payload is None else idempotency_payload
+        )  # 包含 tag_ids 和 people
         tag_ids = payload.pop("tag_ids", None)
         people = _people_payload(payload.pop("people", None))
         predecessor_item_ids = payload.pop("predecessor_item_ids", None)
