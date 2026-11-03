@@ -742,6 +742,7 @@ function McpSection({ session }: { session: Session }) {
   const [created, setCreated] = useState<PatCreated | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [codexCopied, setCodexCopied] = useState(false);
 
   const createToken = useMutation({
     mutationFn: (payload: { name: string; scopes: string[]; expires_in_days?: number }) =>
@@ -760,6 +761,9 @@ function McpSection({ session }: { session: Session }) {
   });
 
   const mcpUrl = `${window.location.origin}/mcp`;
+  const codexMcpCommand =
+    `codex mcp add eventflowos --url "${mcpUrl}" ` +
+    '--bearer-token-env-var PERSONAL_AFFAIRS_MCP_TOKEN';
   const configSnippet = created
     ? JSON.stringify(
         {
@@ -793,6 +797,14 @@ function McpSection({ session }: { session: Session }) {
             {endpointCopied ? '已复制' : '复制'}
           </button>
         </div>
+        <p className="hint">Codex CLI 可使用环境变量认证，避免将 PAT 写入 MCP 配置：</p>
+        <div className="endpoint-row">
+          <code>{codexMcpCommand}</code>
+          <button className="ghost sm" type="button" onClick={() => copyText(codexMcpCommand, setCodexCopied)}>
+            {codexCopied ? '已复制' : '复制 Codex 命令'}
+          </button>
+        </div>
+        <p className="hint">运行命令前，在启动 Codex 的环境中设置 PERSONAL_AFFAIRS_MCP_TOKEN，然后重启 Codex。</p>
 
         <div className="form-grid">
           <input value={name} onChange={(event) => setName(event.target.value)} placeholder="令牌名称，如 codex-cli" />
