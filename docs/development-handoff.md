@@ -2,7 +2,7 @@
 
 > 面向接手这个仓库的开发者或 agent。
 > 写作时间：2026-11-02。代码基线：`HEAD = 6670222`（`docs(deploy): document event context and fix compose project`）
-> **加上 2026-11-02 这一批已上线验证并已提交的改动**（镜像 `20261102083432`），逐条清单见 13.5。
+> **加上 2026-11-02 到 11-03 这一批已上线验证并已提交的改动**（当前线上镜像 `20261102232030`），逐条清单见 13.6。
 >
 > 本文只讲「怎么在这个代码库里干活」。产品边界、需求清单、部署安全清单分别见
 > `docs/development-status.md`、`docs/development-requirements.md`、`docs/deployment.md`。
@@ -36,14 +36,15 @@
 生产编排：`infra/docker-compose.server.yml`，全部 `network_mode: host`，
 所以端口就是宿主机端口，容器之间不经过 docker 网络。
 
-**线上镜像快照**（2026-11-02 12:39 已统一，见 12.2）：
+**线上镜像快照**（2026-11-03 10:55 核对，见 12.2）：
 
 | 容器 | 镜像 |
 |---|---|
-| 全部 5 个 | `personal-affairs-api:20261102043944` / `personal-affairs-web:20261102043944` |
+| 全部 5 个 | `personal-affairs-api:20261102232030` / `personal-affairs-web:20261102232030` |
 
-此前为了快速验证曾只重建单个容器（mcp 跑过 `20261102-agent-actor` 等临时 tag），
-2026-11-02 12:39 跑了完整部署，现在四个后端服务 + web 已经对齐到同一 tag。
+此前为了快速验证曾只重建单个容器（mcp 跑过 `20261102-agent-actor` 等临时 tag）。
+自 2026-11-02 12:39 起改为每次完整部署，四个后端服务 + web 始终对齐到同一 tag；
+**换 tag 后记得回来改这三处提示**（本节、第 5 节镜像说明、附录回滚示例）。
 
 ### 1.2 公网链路
 
@@ -221,7 +222,7 @@ mcp/server.py
 ```
 
 MCP 工具**绕过 FastAPI 的依赖注入**，自己建连接、自己 commit。所以：
-REST 侧的任何鉴权/审计逻辑，在 MCP 侧不会自动生效，需要显式补。这一点踩过坑（见 13.5），
+REST 侧的任何鉴权/审计逻辑，在 MCP 侧不会自动生效，需要显式补。这一点踩过坑（见 13.6），
 所以现在 MCP 侧有一套平行的 `_user_id(require_write=...)` + `_agent_source()` 实现。
 
 ---
@@ -451,7 +452,7 @@ async def pa_do_something(item_id: str, note: str | None = None) -> dict:
 2. **写工具必须传 actor。** `created_by_actor=_AGENT_ACTOR` 或 `updated_by_actor=_AGENT_ACTOR`，
    并带 `source_context=_agent_source()`。漏了就会落成 `human`。
 3. **每加一个参数，都要确认它进了下游的 `fields` / `patch_fields` 字典。**
-   这里出过一个真实 bug：`pa_create_item` 收了 `notes` 参数但没放进 `fields`，静默丢弃（见 13.5）。
+   这里出过一个真实 bug：`pa_create_item` 收了 `notes` 参数但没放进 `fields`，静默丢弃（见 13.6）。
    同类问题现在的护栏是 `test_mcp_create_item_forwards_notes_and_agent_identity`，
    新增写工具时建议照抄一个"参数是否到达 request 对象"的断言。
 4. **不要在工具里自己写 SQL。** 走 `application/` 的 service，和 REST 共用一套业务规则。
@@ -711,7 +712,7 @@ docker exec <pg> pg_dump -U <user> -d personal_affairs -Fc > /backup/pa-$(date +
 所以 `items` 行上的 actor 只能回答"最后是谁碰的"，回答不了"这三次修改分别是谁"。
 
 **修法**：给 `activity_events` 加 actor 列 + 把 actor 贯穿到 service 层所有 `activity.record` 调用。
-REST 与 MCP 共用 service，两条路会一起变，改动面比 13.5 里那些都大。建议单独一轮做。
+REST 与 MCP 共用 service，两条路会一起变，改动面比 13.6 里那些都大。建议单独一轮做。
 
 ### 13.2 【安全 · 中高】bootstrap 口令强度无约束
 
@@ -722,18 +723,45 @@ REST 与 MCP 共用 service，两条路会一起变，改动面比 13.5 里那�
 **建议**：换强口令（20 位随机），并在 bootstrap 路径加最小长度校验。改口令本身是运维动作，
 加校验是代码动作，两件事分开做。
 
-### 13.3 【运维 · 低】Cloudflare 拦截默认 Python UA
+### 13.3 【行为 · 中】AMap 未启用时，线下事件一律要显式确认
+
+`user_preferences.amap_enabled` 当前是 `false`（也没配 key）。`resolve_event_location`
+在这种情况下返回 `{"status": "disabled"}`，`_mark_location_uncertainty` 随即把整体评估
+改写成 `travel_unknown`；而 `pa_create_calendar_event` 对 `travel_unknown` 的处理是
+**不给 `confirm_schedule_risks=true` 就不创建**。
+
+实测（2026-11-03，走公网 MCP）：
+
+```
+pa_create_calendar_event(event_format="offline", location_name="上海中心大厦")
+  → {"created": false, "requires_confirmation": true, "assessment": {"status": "travel_unknown"}}
+  → 库内 0 写入
+同一请求补 confirm_schedule_risks=true → 正常创建，schedule_assessment 一并返回
+```
+
+问题在于**"无法评估"被当成了"有风险"**：provider 没启用不是路程风险，却让所有带地点的
+线下事件变成需要二次确认。任何没带这个新参数的 agent / 自动化，会静默拿到 `created:false`。
+
+**两条路，选一条**：
+- 运维：把 AMap key 配上并开启（settings → 集成），行为立刻符合设计；
+- 代码：把"provider 未启用 / 路线不可得"从 `travel_unknown` 拆出来（例如 `not_assessed`），
+  只影响提示不影响写入；真正需要拦的仍是 `conflict` / `travel_blocked` / `location_ambiguous`。
+
+在此之前，写线下事件要么带地点坐标（`status: resolved`，走真实路线判断），
+要么显式传 `confirm_schedule_risks=true`。
+
+### 13.4 【运维 · 低】Cloudflare 拦截默认 Python UA
 
 `User-Agent: Python-urllib/3.x` 请求 `/api/v1/auth/login` 会在边缘返回 `403`，
 换成 `curl` 或浏览器 UA 就正常。任何脚本/agent 直连 REST API 都要显式设 UA。
 
-### 13.4 【未验证】Cloudflare Access 策略
+### 13.5 【未验证】Cloudflare Access 策略
 
 `tag.eventflowos.com` 目前**没有** Access 拦截（无 cookie 请求拿到的是应用自己的 401）。
 如果将来给这个 hostname 加 Access 策略，MCP 的非浏览器客户端会被拦在门外，
 届时需要配 service token（或在 MCP 专用 hostname 上单独放行）。改之前先确认 agent 侧能带 Access 头。
 
-### 13.5 【已修 · 记录备查】
+### 13.6 【已修 · 记录备查】
 
 全部带防回归测试，不是一次性修补。
 
@@ -747,7 +775,7 @@ REST 与 MCP 共用 service，两条路会一起变，改动面比 13.5 里那�
 | 前端生成的 MCP 片段缺 `"type": "http"` | `SettingsPage.tsx` 片段补该字段 | WorkBuddy 实测：不带 `type` 条目静默不加载 |
 | 工作区 17 个改动未提交 | 按主题拆 commit 推 `origin/codex/eventflowos-development-status` | `git log --oneline` |
 
-#### 13.5.1 测试面的改动（值得单独说明）
+#### 13.6.1 测试面的改动（值得单独说明）
 
 `test_mcp_contract.py` 原来只断言"工具名存在"，且只对 3 个 proposal 工具验过写权限。
 现在改成**表驱动 + 静态校验**：
@@ -792,17 +820,20 @@ REST 与 MCP 共用 service，两条路会一起变，改动面比 13.5 里那�
 
 ## 15. 建议的下一步
 
-2026-11-02 这一轮已经完成：迁移门控、MCP scope 校验 + agent 身份、worker 异常兜底、镜像统一、
-僵尸表清理、MCP 片段补 `type`、全量改动提交（13.5）。剩下的按投入产出排：
+2026-11-02 到 11-03 这一轮已经完成：迁移门控、MCP scope 校验 + agent 身份、worker 异常兜底、
+镜像统一、僵尸表清理、MCP 片段补 `type`、事件预检 + 日程统计（32 工具）、全量改动提交（13.6）。
+剩下的按投入产出排：
 
-1. **bootstrap 换强口令 + 加长度校验**（13.2）。已经公网暴露，6 位数字，别拖。
-2. **`activity_events` 补 actor**（13.1）。审计完整性，改动跨 service 层，单独一轮。
-3. **给 MCP 写链路补集成测试**。现在写工具的 scope 是静态校验（`require_write` 字面值），
+1. **决定 AMap 开关走哪条路**（13.3）。现在等于所有带地点的线下事件都要 `confirm_schedule_risks`，
+   要么配 key，要么把"未启用/无法评估"从 `travel_unknown` 里拆出去。这是当前最影响日常使用的一条。
+2. **bootstrap 换强口令 + 加长度校验**（13.2）。已经公网暴露，6 位数字，别拖。
+3. **`activity_events` 补 actor**（13.1）。审计完整性，改动跨 service 层，单独一轮。
+4. **给 MCP 写链路补集成测试**。现在写工具的 scope 是静态校验（`require_write` 字面值），
    真正打库的端到端只有手工验收记录（`docs/workbuddy-handoff.md`）。建议用一次性库做一条
    "建事项 → 挂提醒 → worker 投递 → 清理"的自动化用例。
-4. **`worker_heartbeats` 按 PID 累积，已 106 行**。worker 每次重启新增一行、旧行不清理，
+5. **`worker_heartbeats` 按 PID 累积，已 106 行**。worker 每次重启新增一行、旧行不清理，
    看"心跳新不新"时要先取 `max(last_seen_at)`。顺手加个启动时清理旧 PID 的逻辑。
-5. **确认 Cloudflare Access 边界**（13.4）。现在等于没有边缘鉴权，靠应用自身 401 + PAT。
+6. **确认 Cloudflare Access 边界**（13.5）。现在等于没有边缘鉴权，靠应用自身 401 + PAT。
 
 ---
 
@@ -832,7 +863,7 @@ docker build -f infra/Dockerfile.api \
   -t personal-affairs-api:trial . && \
 PERSONAL_AFFAIRS_RUNTIME_ENV_FILE=/srv/secrets/personal-affairs/runtime.env \
 PERSONAL_AFFAIRS_API_IMAGE=personal-affairs-api:trial \
-PERSONAL_AFFAIRS_WEB_IMAGE=personal-affairs-web:20261102043944 \
+PERSONAL_AFFAIRS_WEB_IMAGE=personal-affairs-web:20261102232030 \
   docker compose -p personal-affairs -f infra/docker-compose.server.yml up -d --no-deps mcp
 ```
 
